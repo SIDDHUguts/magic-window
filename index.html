@@ -1,0 +1,1615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAmaniacLabs - Magic Window Filter</title>
+    
+    <!-- Load Google Font Outfit -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    
+    <!-- Load MediaPipe Hands from CDN (version locked for stability) -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js" crossorigin="anonymous"></script>
+    
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-glass: rgba(255, 255, 255, 0.03);
+            --border-glass: rgba(255, 255, 255, 0.08);
+            --accent: #c9a87c;
+            --accent-glow: rgba(201, 168, 124, 0.3);
+            --text-primary: #f5f5f7;
+            --text-secondary: #a0a0b0;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            position: relative;
+            margin: 0;
+        }
+
+        /* Ambient glowing backgrounds */
+        .ambient-glow {
+            position: absolute;
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, var(--accent-glow) 0%, rgba(10, 10, 15, 0) 70%);
+            z-index: 0;
+            pointer-events: none;
+            filter: blur(50px);
+        }
+
+        .glow-top { top: -10%; left: 20%; }
+        .glow-bottom { bottom: -10%; right: 20%; }
+
+        /* Canvas styling - Full Viewport */
+        .canvas-container {
+            position: absolute;
+            inset: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+            overflow: hidden;
+            background: #000;
+        }
+
+        #output_canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+
+        /* Glassmorphic Controls Dashboard - Floating Panel */
+        .dashboard-panel {
+            position: absolute;
+            right: 25px;
+            top: 25px;
+            bottom: 25px;
+            width: 320px;
+            background: rgba(10, 10, 15, 0.65);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--border-glass);
+            border-radius: 16px;
+            padding: 22px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+            z-index: 10;
+        }
+
+        .hud-header-container h2 {
+            font-size: 1.4rem;
+            font-weight: 800;
+            letter-spacing: 1px;
+            background: linear-gradient(135deg, #fff 30%, var(--accent) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 2px;
+        }
+
+        .hud-header-container p {
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+            font-weight: 300;
+            letter-spacing: 0.5px;
+        }
+
+        .hud-section {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .hud-section h3 {
+            font-size: 0.72rem;
+            font-weight: 800;
+            letter-spacing: 1.5px;
+            color: var(--accent);
+            text-transform: uppercase;
+            border-bottom: 1px solid rgba(201, 168, 124, 0.15);
+            padding-bottom: 6px;
+        }
+
+        .hud-stats {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .stat-row span:last-child {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        .accent-text {
+            color: var(--accent) !important;
+        }
+
+        .toggle-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .hud-btn {
+            width: 100%;
+            padding: 11px 16px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            outline: none;
+        }
+
+        .hud-btn:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(201, 168, 124, 0.5);
+            transform: translateY(-1px);
+        }
+
+        .hud-btn:active {
+            transform: translateY(1px);
+        }
+
+        .hud-btn.active {
+            background: rgba(201, 168, 124, 0.15);
+            border-color: var(--accent);
+            box-shadow: 0 0 15px rgba(201, 168, 124, 0.2);
+            color: #fff;
+        }
+
+        .hud-btn.muted {
+            border-color: rgba(255, 99, 132, 0.35);
+            background: rgba(255, 99, 132, 0.03);
+            color: var(--text-secondary);
+        }
+
+        .hud-btn.unmuted {
+            border-color: #00ff88;
+            background: rgba(0, 255, 136, 0.06);
+            box-shadow: 0 0 15px rgba(0, 255, 136, 0.1);
+            color: #fff;
+        }
+
+        .preset-selector-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .preset-btn {
+            padding: 8px 6px;
+            font-size: 0.76rem;
+            font-weight: 600;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: center;
+            font-family: 'Outfit', sans-serif;
+            height: 46px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1.2;
+            outline: none;
+        }
+
+        .preset-btn:hover {
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text-primary);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .preset-btn.active {
+            background: rgba(201, 168, 124, 0.15);
+            border-color: var(--accent);
+            color: #fff;
+            box-shadow: 0 0 15px rgba(201, 168, 124, 0.12);
+        }
+
+        .hud-footer {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            font-size: 0.72rem;
+            color: var(--text-secondary);
+            margin-top: auto;
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+            padding-top: 15px;
+        }
+
+        .hud-footer-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .floating-hud-trigger {
+            position: absolute;
+            right: 25px;
+            top: 25px;
+            z-index: 100;
+            padding: 10px 18px;
+            background: rgba(10, 10, 15, 0.75);
+            border: 1px solid var(--border-glass);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-radius: 8px;
+            color: var(--text-primary);
+            cursor: pointer;
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.85rem;
+            font-weight: 600;
+            transition: all 0.25s ease;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+            outline: none;
+        }
+
+        .floating-hud-trigger:hover {
+            background: rgba(201, 168, 124, 0.15);
+            border-color: var(--accent);
+            transform: translateY(-1px);
+        }
+
+        /* Loading Overlay */
+        #loading-overlay {
+            position: absolute;
+            inset: 0;
+            background: var(--bg-primary);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            z-index: 10;
+            transition: opacity 0.5s ease;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(255, 255, 255, 0.05);
+            border-top: 3px solid var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        #loading-text {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            letter-spacing: 1px;
+            text-align: center;
+            padding: 0 20px;
+        }
+
+        /* Safe invisible video element */
+        #webcam {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        @media (max-width: 768px) {
+            .dashboard-panel {
+                left: 20px;
+                right: 20px;
+                top: auto;
+                bottom: 20px;
+                height: auto;
+                max-height: 50%;
+                overflow-y: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="ambient-glow glow-top"></div>
+    <div class="ambient-glow glow-bottom"></div>
+
+    <div class="canvas-container">
+        <!-- Loading Panel -->
+        <div id="loading-overlay">
+            <div class="spinner"></div>
+            <div id="loading-text">INITIALIZING CAMERA & MODELS...</div>
+        </div>
+        
+        <canvas id="output_canvas"></canvas>
+    </div>
+
+    <!-- Glassmorphic HUD Dashboard -->
+    <div class="dashboard-panel" id="hud-dashboard">
+        <div class="hud-header-container">
+            <h2>SAmaniacLabs</h2>
+            <p>Magic Window Filter</p>
+        </div>
+
+        <div class="hud-section">
+            <h3>SYSTEM DIAGNOSTICS</h3>
+            <div class="hud-stats">
+                <div class="stat-row">
+                    <span>FPS:</span>
+                    <span id="fps-val" style="color: #00ff88; font-weight: bold;">60.0</span>
+                </div>
+                <div class="stat-row">
+                    <span>Hands Tracked:</span>
+                    <span id="hands-val" style="color: #ff3333;">0 / 2</span>
+                </div>
+                <div class="stat-row text-truncate">
+                    <span>Active Preset:</span>
+                    <span id="preset-val" class="accent-text">Spectrum Halftone</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="hud-section">
+            <h3>INTERACTIVE CONTROLS</h3>
+            <div class="toggle-buttons">
+                <button id="toggle-audio" class="hud-btn muted" onclick="toggleAudio()">
+                    <span class="icon">🔇</span> Sound: MUTED
+                </button>
+                <button id="toggle-helpers" class="hud-btn off" onclick="toggleHelpers()">
+                    <span class="icon">👁️‍🗨️</span> Guides: HIDDEN
+                </button>
+                <button id="toggle-dashboard" class="hud-btn" onclick="toggleDashboardCollapse()">
+                    <span class="icon">🎛️</span> Hide Controls
+                </button>
+            </div>
+        </div>
+
+        <div class="hud-section">
+            <h3>FILTER PRESETS</h3>
+            <div class="preset-selector-grid">
+                <button class="preset-btn active" data-preset="0" onclick="setFilterPreset(0)">Spectrum Halftone</button>
+                <button class="preset-btn" data-preset="1" onclick="setFilterPreset(1)">Cyber Metal</button>
+                <button class="preset-btn" data-preset="2" onclick="setFilterPreset(2)">Digital Matrix</button>
+                <button class="preset-btn" data-preset="3" onclick="setFilterPreset(3)">Synthwave Glitch</button>
+            </div>
+        </div>
+
+        <div class="hud-footer">
+            <div class="hud-footer-item">
+                <span class="key-badge">SPACE</span> <span>Cycle Presets</span>
+            </div>
+            <div class="hud-footer-item">
+                <span class="key-badge">H</span> <span>Toggle Guides</span>
+            </div>
+            <div class="hud-footer-item">
+                <span class="key-badge">M</span> <span>Mute / Unmute Synth</span>
+            </div>
+            <div class="hud-footer-item">
+                <span class="key-badge">D</span> <span>Toggle Controls</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Small Floating Restore Button when HUD is collapsed -->
+    <button id="btn-restore-hud" class="floating-hud-trigger" onclick="toggleDashboardCollapse()" style="display: none;">
+        🎛️ Controls
+    </button>
+
+    <!-- Hidden Video Source -->
+    <video id="webcam" autoplay playsinline></video>
+
+    <!-- Core App Logic -->
+    <script>
+        const videoElement = document.getElementById('webcam');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d', { willReadFrequently: true });
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const loadingText = document.getElementById('loading-text');
+
+        // --- Canvas Full-Screen Resizing ---
+        function resizeCanvas() {
+            canvasElement.width = window.innerWidth;
+            canvasElement.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // --- Collapse Controls State ---
+        let isDashboardCollapsed = false;
+        function toggleDashboardCollapse() {
+            isDashboardCollapsed = !isDashboardCollapsed;
+            const hud = document.getElementById('hud-dashboard');
+            const restoreBtn = document.getElementById('btn-restore-hud');
+            if (isDashboardCollapsed) {
+                hud.style.display = 'none';
+                restoreBtn.style.display = 'block';
+            } else {
+                hud.style.display = 'flex';
+                restoreBtn.style.display = 'none';
+            }
+        }
+
+        // --- Configuration Constants ---
+        const SMOOTHING_FACTOR = 0.25; // EMA smoothing (lower = smoother)
+        const MIN_WINDOW_SIZE = 100;
+        const MAX_WINDOW_SIZE = 450;
+
+        // --- Helper Guides Overlay State ---
+        let showHelpers = false;
+
+        function toggleHelpers(forceState) {
+            if (forceState !== undefined) {
+                showHelpers = forceState;
+            } else {
+                showHelpers = !showHelpers;
+            }
+            const btn = document.getElementById('toggle-helpers');
+            if (showHelpers) {
+                btn.innerHTML = '<span class="icon">👁️</span> Guides: VISIBLE';
+                btn.className = 'hud-btn active';
+            } else {
+                btn.innerHTML = '<span class="icon">👁️‍🗨️</span> Guides: HIDDEN';
+                btn.className = 'hud-btn off';
+            }
+        }
+
+        // --- Interactive Web Audio Synthesizer ---
+        let audioCtx = null;
+        let oscillator = null;
+        let resonantFilter = null;
+        let lfo = null;
+        let lfoGain = null;
+        let synthGainNode = null;
+        let isAudioEnabled = false;
+        let analyser = null;
+        let audioDataArray = null;
+
+        function initSynth() {
+            if (audioCtx) return;
+            try {
+                const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                audioCtx = new AudioContextClass();
+                
+                // Rich sawtooth oscillator
+                oscillator = audioCtx.createOscillator();
+                oscillator.type = 'sawtooth';
+                oscillator.frequency.value = 150; 
+                
+                // Resonant low-pass filter (sci-fi throb/squelch)
+                resonantFilter = audioCtx.createBiquadFilter();
+                resonantFilter.type = 'lowpass';
+                resonantFilter.Q.value = 8.0; 
+                resonantFilter.frequency.value = 800; 
+                
+                // Slow LFO to modulate filter cutoff for a beating pulse
+                lfo = audioCtx.createOscillator();
+                lfo.type = 'sine';
+                lfo.frequency.value = 5.0; 
+                
+                lfoGain = audioCtx.createGain();
+                lfoGain.gain.value = 160; 
+                
+                // Gain Node for output level and fading
+                synthGainNode = audioCtx.createGain();
+                synthGainNode.gain.value = 0.0; 
+
+                // Analyser Node for interactive audio visualizer string
+                analyser = audioCtx.createAnalyser();
+                analyser.fftSize = 128; // small size for low performance impact
+                audioDataArray = new Uint8Array(analyser.frequencyBinCount);
+                
+                // Connect LFO modulation path
+                lfo.connect(lfoGain);
+                lfoGain.connect(resonantFilter.frequency);
+                
+                // Connect main signal path
+                oscillator.connect(resonantFilter);
+                resonantFilter.connect(synthGainNode);
+                synthGainNode.connect(analyser);
+                analyser.connect(audioCtx.destination);
+                
+                // Start oscillators
+                oscillator.start();
+                lfo.start();
+                
+                console.log("Interactive Web Audio Synthesizer with Analyser initialized successfully.");
+            } catch (err) {
+                console.error("Web Audio Synthesizer initialization failed:", err);
+            }
+        }
+
+        function toggleAudio(forceState) {
+            if (!audioCtx) {
+                initSynth();
+            }
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+
+            if (forceState !== undefined) {
+                isAudioEnabled = forceState;
+            } else {
+                isAudioEnabled = !isAudioEnabled;
+            }
+            
+            const btn = document.getElementById('toggle-audio');
+            if (isAudioEnabled) {
+                btn.innerHTML = '<span class="icon">🔊</span> Sound: ON';
+                btn.className = 'hud-btn unmuted';
+            } else {
+                btn.innerHTML = '<span class="icon">🔇</span> Sound: MUTED';
+                btn.className = 'hud-btn muted';
+                if (synthGainNode) {
+                    synthGainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.08);
+                }
+            }
+        }
+
+        // --- Interactive Particle System ---
+        const particles = [];
+        class Particle {
+            constructor(x, y, vx, vy, colorStr = 'rgba(201, 168, 124, ') {
+                this.x = x;
+                this.y = y;
+                this.vx = vx;
+                this.vy = vy;
+                this.life = 1.0;
+                this.decay = 0.015 + Math.random() * 0.02; // Slower decay for stream effect
+                this.size = 2.0 + Math.random() * 3.5;
+                this.colorStr = colorStr;
+                
+                // Extract rgb for drop shadows
+                this.shadowColor = this.colorStr.replace('rgba', 'rgb').split(',').slice(0, 3).join(',') + ')';
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vy -= 0.04; // FLOAT UPWARD! Defying gravity (Antigravity mode)
+                this.life -= this.decay;
+            }
+            draw(ctx) {
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * this.life, 0, 2 * Math.PI);
+                ctx.fillStyle = `${this.colorStr}${this.life})`;
+                ctx.shadowColor = this.shadowColor;
+                ctx.shadowBlur = 6;
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        // --- Filter Pipelines ---
+        
+        function applyInvert(ctx, x, y, w, h) {
+            const imgData = ctx.getImageData(x, y, w, h);
+            const data = imgData.data;
+            for (let i = 0; i < data.length; i += 4) {
+                data[i] = 255 - data[i];       // R
+                data[i+1] = 255 - data[i+1];   // G
+                data[i+2] = 255 - data[i+2];   // B
+            }
+            ctx.putImageData(imgData, x, y);
+        }
+
+        function applyEmboss(ctx, x, y, w, h) {
+            const imgData = ctx.getImageData(x, y, w, h);
+            const data = imgData.data;
+            const width = w;
+            const height = h;
+            
+            const output = new Uint8ClampedArray(data.length);
+            
+            // Emboss Matrix Kernel
+            const weights = [
+                -2, -1,  0,
+                -1,  1,  1,
+                 0,  1,  2
+            ];
+            
+            for (let r = 1; r < height - 1; r++) {
+                for (let c = 1; c < width - 1; c++) {
+                    let val = 0;
+                    for (let ky = -1; ky <= 1; ky++) {
+                        for (let kx = -1; kx <= 1; kx++) {
+                            const pixelIdx = ((r + ky) * width + (c + kx)) * 4;
+                            const brightness = 0.299 * data[pixelIdx] + 0.587 * data[pixelIdx+1] + 0.114 * data[pixelIdx+2];
+                            val += brightness * weights[(ky + 1) * 3 + (kx + 1)];
+                        }
+                    }
+                    
+                    val += 128;
+                    if (val < 0) val = 0;
+                    if (val > 255) val = 255;
+                    
+                    const idx = (r * width + c) * 4;
+                    output[idx] = val;
+                    output[idx+1] = val;
+                    output[idx+2] = val;
+                    output[idx+3] = 255;
+                }
+            }
+            
+            for (let r = 1; r < height - 1; r++) {
+                for (let c = 1; c < width - 1; c++) {
+                    const idx = (r * width + c) * 4;
+                    data[idx] = output[idx];
+                    data[idx+1] = output[idx+1];
+                    data[idx+2] = output[idx+2];
+                }
+            }
+            ctx.putImageData(imgData, x, y);
+        }
+
+        function applyAscii(ctx, x, y, w, h, originalImgData) {
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(x, y, w, h);
+            
+            const data = originalImgData.data;
+            
+            const cols = Math.max(10, Math.min(22, Math.round(w / 10)));
+            const rows = Math.max(10, Math.min(22, Math.round(h / 10)));
+            const cellW = w / cols;
+            const cellH = h / rows;
+            
+            ctx.fillStyle = '#00ff00';
+            ctx.font = 'bold 9px monospace';
+            ctx.textAlign = 'left';
+            
+            const chars = " .:-=+*#%@";
+            const numChars = chars.length;
+            
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    const cellStartX = Math.floor(c * cellW);
+                    const cellStartY = Math.floor(r * cellH);
+                    const cellEndX = Math.floor((c + 1) * cellW);
+                    const cellEndY = Math.floor((r + 1) * cellH);
+                    
+                    let sum = 0;
+                    let count = 0;
+                    
+                    for (let py = cellStartY; py < cellEndY; py++) {
+                        if (py >= h) continue;
+                        for (let px = cellStartX; px < cellEndX; px++) {
+                            if (px >= w) continue;
+                            const idx = (py * w + px) * 4;
+                            const brightness = 0.299 * data[idx] + 0.587 * data[idx+1] + 0.114 * data[idx+2];
+                            sum += brightness;
+                            count++;
+                        }
+                    }
+                    
+                    const avg = sum / (count || 1);
+                    if (avg < 20) continue;
+                    
+                    const charIdx = Math.floor((avg / 255.0) * (numChars - 1));
+                    const char = chars[charIdx];
+                    
+                    const drawX = x + c * cellW + cellW * 0.15;
+                    const drawY = y + r * cellH + cellH * 0.8;
+                    ctx.fillText(char, drawX, drawY);
+                }
+            }
+        }
+
+        function applyThermal(ctx, x, y, w, h) {
+            const imgData = ctx.getImageData(x, y, w, h);
+            const data = imgData.data;
+            for (let i = 0; i < data.length; i += 4) {
+                const brightness = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
+                
+                let r, g, b;
+                if (brightness < 64) {
+                    r = Math.floor(brightness * 1.5);
+                    g = 0;
+                    b = Math.floor(100 + brightness * 2.4);
+                } else if (brightness < 128) {
+                    const rel = brightness - 64;
+                    r = 0;
+                    g = Math.floor(rel * 4);
+                    b = Math.floor(255 - rel * 4);
+                } else if (brightness < 192) {
+                    const rel = brightness - 128;
+                    r = Math.floor(rel * 4);
+                    g = 255;
+                    b = 0;
+                } else {
+                    const rel = brightness - 192;
+                    r = 255;
+                    g = Math.floor(255 - rel * 4);
+                    b = Math.floor(rel * 4);
+                }
+                data[i] = r;
+                data[i+1] = g;
+                data[i+2] = b;
+            }
+            ctx.putImageData(imgData, x, y);
+        }
+
+        function applyNeonEdge(ctx, x, y, w, h) {
+            const imgData = ctx.getImageData(x, y, w, h);
+            const data = imgData.data;
+            const output = new Uint8ClampedArray(data.length);
+            
+            for (let r = 1; r < h - 1; r++) {
+                for (let c = 1; c < w - 1; c++) {
+                    const idx = (r * w + c) * 4;
+                    const rightIdx = idx + 4;
+                    const downIdx = idx + w * 4;
+                    
+                    const bVal = 0.299 * data[idx] + 0.587 * data[idx+1] + 0.114 * data[idx+2];
+                    const bRight = 0.299 * data[rightIdx] + 0.587 * data[rightIdx+1] + 0.114 * data[rightIdx+2];
+                    const bDown = 0.299 * data[downIdx] + 0.587 * data[downIdx+1] + 0.114 * data[downIdx+2];
+                    
+                    const edge = Math.abs(bVal - bRight) + Math.abs(bVal - bDown);
+                    
+                    if (edge > 24) {
+                        if (edge > 48) {
+                            output[idx] = 255;
+                            output[idx+1] = 0;
+                            output[idx+2] = 135;
+                        } else {
+                            output[idx] = 0;
+                            output[idx+1] = 255;
+                            output[idx+2] = 255;
+                        }
+                        output[idx+3] = 255;
+                    } else {
+                        if (r % 15 === 0 || c % 15 === 0) {
+                            output[idx] = 12;
+                            output[idx+1] = 18;
+                            output[idx+2] = 36;
+                        } else {
+                            output[idx] = 6;
+                            output[idx+1] = 7;
+                            output[idx+2] = 12;
+                        }
+                        output[idx+3] = 255;
+                    }
+                }
+            }
+            
+            for (let r = 1; r < h - 1; r++) {
+                for (let c = 1; c < w - 1; c++) {
+                    const idx = (r * w + c) * 4;
+                    data[idx] = output[idx];
+                    data[idx+1] = output[idx+1];
+                    data[idx+2] = output[idx+2];
+                }
+            }
+            ctx.putImageData(imgData, x, y);
+        }
+
+        // --- New Shaders ---
+
+        function hslToRgb(h, s, l) {
+            let r, g, b;
+            if (s === 0) {
+                r = g = b = l; // achromatic
+            } else {
+                const hue2rgb = (p, q, t) => {
+                    if (t < 0) t += 1;
+                    if (t > 1) t -= 1;
+                    if (t < 1/6) return p + (q - p) * 6 * t;
+                    if (t < 1/2) return q;
+                    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+                    return p;
+                };
+                const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                const p = 2 * l - q;
+                r = hue2rgb(p, q, h + 1/3);
+                g = hue2rgb(p, q, h);
+                b = hue2rgb(p, q, h - 1/3);
+            }
+            return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+        }
+
+        function applyChromaticAberration(ctx, x, y, w, h) {
+            const imgData = ctx.getImageData(x, y, w, h);
+            const data = imgData.data;
+            const output = new Uint8ClampedArray(data.length);
+            
+            const shift = 7; // pixel shift for color channels
+            
+            for (let r = 0; r < h; r++) {
+                for (let c = 0; c < w; c++) {
+                    const idx = (r * w + c) * 4;
+                    
+                    // Red channel shifted left
+                    const cR = Math.max(0, c - shift);
+                    const idxR = (r * w + cR) * 4;
+                    output[idx] = data[idxR]; 
+                    
+                    // Green channel stays center
+                    output[idx+1] = data[idx+1]; 
+                    
+                    // Blue channel shifted right
+                    const cB = Math.min(w - 1, c + shift);
+                    const idxB = (r * w + cB) * 4;
+                    output[idx+2] = data[idxB]; 
+                    
+                    output[idx+3] = 255;
+                }
+            }
+            
+            // Random horizontal glitch scanline offset
+            if (Math.random() < 0.12) {
+                const scanRow = Math.floor(Math.random() * h);
+                const scanHeight = 2 + Math.floor(Math.random() * 5);
+                const scanShift = Math.floor((Math.random() - 0.5) * 16);
+                
+                for (let r = scanRow; r < Math.min(h, scanRow + scanHeight); r++) {
+                    for (let c = 0; c < w; c++) {
+                        const targetIdx = (r * w + c) * 4;
+                        const sourceCol = Math.max(0, Math.min(w - 1, c + scanShift));
+                        const sourceIdx = (r * w + sourceCol) * 4;
+                        
+                        output[targetIdx] = output[sourceIdx];
+                        output[targetIdx+1] = output[sourceIdx+1];
+                        output[targetIdx+2] = output[sourceIdx+2];
+                    }
+                }
+            }
+            
+            for (let i = 0; i < data.length; i++) {
+                data[i] = output[i];
+            }
+            ctx.putImageData(imgData, x, y);
+        }
+
+        function applyNeonSpectrum(ctx, x, y, w, h) {
+            const imgData = ctx.getImageData(x, y, w, h);
+            const data = imgData.data;
+            const output = new Uint8ClampedArray(data.length);
+            
+            const baseHue = (Date.now() / 30) % 360;
+            
+            for (let r = 1; r < h - 1; r++) {
+                for (let c = 1; c < w - 1; c++) {
+                    const idx = (r * w + c) * 4;
+                    const rightIdx = idx + 4;
+                    const downIdx = idx + w * 4;
+                    
+                    const bVal = 0.299 * data[idx] + 0.587 * data[idx+1] + 0.114 * data[idx+2];
+                    const bRight = 0.299 * data[rightIdx] + 0.587 * data[rightIdx+1] + 0.114 * data[rightIdx+2];
+                    const bDown = 0.299 * data[downIdx] + 0.587 * data[downIdx+1] + 0.114 * data[downIdx+2];
+                    
+                    const edge = Math.abs(bVal - bRight) + Math.abs(bVal - bDown);
+                    
+                    if (edge > 24) {
+                        const hue = (baseHue + (c / w) * 120 + (r / h) * 40) % 360;
+                        const rgb = hslToRgb(hue / 360, 1.0, 0.5);
+                        output[idx] = rgb[0];
+                        output[idx+1] = rgb[1];
+                        output[idx+2] = rgb[2];
+                        output[idx+3] = 255;
+                    } else {
+                        // Background cyber grid lines
+                        if (r % 16 === 0 || c % 16 === 0) {
+                            output[idx] = 12;
+                            output[idx+1] = 18;
+                            output[idx+2] = 36;
+                        } else {
+                            output[idx] = 6;
+                            output[idx+1] = 7;
+                            output[idx+2] = 12;
+                        }
+                        output[idx+3] = 255;
+                    }
+                }
+            }
+            
+            for (let r = 1; r < h - 1; r++) {
+                for (let c = 1; c < w - 1; c++) {
+                    const idx = (r * w + c) * 4;
+                    data[idx] = output[idx];
+                    data[idx+1] = output[idx+1];
+                    data[idx+2] = output[idx+2];
+                }
+            }
+            ctx.putImageData(imgData, x, y);
+        }
+
+        function applyPixelate(ctx, x, y, w, h) {
+            const pixelSize = 9;
+            const imgData = ctx.getImageData(x, y, w, h);
+            const data = imgData.data;
+            
+            for (let r = 0; r < h; r += pixelSize) {
+                for (let c = 0; c < w; c += pixelSize) {
+                    let sumR = 0, sumG = 0, sumB = 0, count = 0;
+                    
+                    for (let dy = 0; dy < pixelSize && (r + dy) < h; dy++) {
+                        for (let dx = 0; dx < pixelSize && (c + dx) < w; dx++) {
+                            const idx = ((r + dy) * w + (c + dx)) * 4;
+                            sumR += data[idx];
+                            sumG += data[idx+1];
+                            sumB += data[idx+2];
+                            count++;
+                        }
+                    }
+                    
+                    const avgR = Math.round(sumR / count);
+                    const avgG = Math.round(sumG / count);
+                    const avgB = Math.round(sumB / count);
+                    
+                    for (let dy = 0; dy < pixelSize && (r + dy) < h; dy++) {
+                        for (let dx = 0; dx < pixelSize && (c + dx) < w; dx++) {
+                            const idx = ((r + dy) * w + (c + dx)) * 4;
+                            data[idx] = avgR;
+                            data[idx+1] = avgG;
+                            data[idx+2] = avgB;
+                        }
+                    }
+                }
+            }
+            ctx.putImageData(imgData, x, y);
+        }
+
+        // Halftone dots printer
+        function drawHalftone(ctx, x, y, sizeX, sizeY, dotColor, bgColor, originalImgData) {
+            ctx.fillStyle = bgColor;
+            ctx.fillRect(x, y, sizeX, sizeY);
+            
+            const data = originalImgData.data;
+            const width = Math.round(sizeX);
+            const height = Math.round(sizeY);
+            
+            // Adjust density based on bounding box width
+            const cols = Math.max(10, Math.min(32, Math.round(sizeX / 7.5)));
+            const rows = Math.round(cols * (sizeY / sizeX));
+            const cellW = sizeX / cols;
+            const cellH = sizeY / rows;
+            
+            ctx.fillStyle = dotColor;
+            
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    const cellStartX = Math.floor(c * cellW);
+                    const cellStartY = Math.floor(r * cellH);
+                    const cellEndX = Math.floor((c + 1) * cellW);
+                    const cellEndY = Math.floor((r + 1) * cellH);
+                    
+                    let sum = 0;
+                    let count = 0;
+                    
+                    for (let py = cellStartY; py < cellEndY; py++) {
+                        if (py >= height) continue;
+                        for (let px = cellStartX; px < cellEndX; px++) {
+                            if (px >= width) continue;
+                            const idx = (py * width + px) * 4;
+                            const brightness = 0.299 * data[idx] + 0.587 * data[idx+1] + 0.114 * data[idx+2];
+                            sum += brightness;
+                            count++;
+                        }
+                    }
+                    
+                    const avg = sum / (count || 1);
+                    const darkness = 1.0 - (avg / 255.0);
+                    if (darkness < 0.05) continue;
+                    
+                    const maxRadius = Math.min(cellW, cellH) * 0.65;
+                    const radius = maxRadius * darkness;
+                    
+                    const cx = x + c * cellW + cellW / 2;
+                    const cy = y + r * cellH + cellH / 2;
+                    
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
+                    ctx.fill();
+                }
+            }
+        }
+
+
+        // --- Prism Presets (Two Hand Mode) ---
+        const prismPresets = [
+            {
+                name: "Spectrum Halftone",
+                top: (ctx, x, y, w, h, orig) => drawHalftone(ctx, x, y, w, h, '#0033aa', '#ffffff', orig),
+                mid: (ctx, x, y, w, h) => applyThermal(ctx, x, y, w, h),
+                bot: (ctx, x, y, w, h, orig) => drawHalftone(ctx, x, y, w, h, '#ee2222', '#ffffff', orig)
+            },
+            {
+                name: "Cyber Metal",
+                top: (ctx, x, y, w, h) => applyEmboss(ctx, x, y, w, h),
+                mid: (ctx, x, y, w, h) => applyNeonEdge(ctx, x, y, w, h),
+                bot: (ctx, x, y, w, h) => applyInvert(ctx, x, y, w, h)
+            },
+            {
+                name: "Digital Matrix",
+                top: (ctx, x, y, w, h, orig) => applyAscii(ctx, x, y, w, h, orig),
+                mid: (ctx, x, y, w, h) => applyThermal(ctx, x, y, w, h),
+                bot: (ctx, x, y, w, h) => applyNeonEdge(ctx, x, y, w, h)
+            },
+            {
+                name: "Synthwave Glitch",
+                top: (ctx, x, y, w, h) => applyChromaticAberration(ctx, x, y, w, h),
+                mid: (ctx, x, y, w, h) => applyNeonSpectrum(ctx, x, y, w, h),
+                bot: (ctx, x, y, w, h) => applyPixelate(ctx, x, y, w, h)
+            }
+        ];
+        
+        let currentFilterIdx = 0;
+
+        function setFilterPreset(idx) {
+            // First user interaction: initialize audio context if sound is unmuted
+            if (isAudioEnabled && !audioCtx) {
+                initSynth();
+            }
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+
+            currentFilterIdx = idx % prismPresets.length;
+            
+            // Trigger visual transition flash
+            presetTransitionTimer = 1.0;
+            
+            // Sync dashboard preset grid buttons
+            const buttons = document.querySelectorAll('.preset-btn');
+            buttons.forEach(btn => {
+                const btnIdx = parseInt(btn.getAttribute('data-preset'));
+                if (btnIdx === currentFilterIdx) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+            
+            // Sync diagnostics label
+            const label = document.getElementById('preset-val');
+            if (label) {
+                label.textContent = prismPresets[currentFilterIdx].name;
+            }
+        }
+
+        // --- State Variables ---
+        let boxCenterX = 320;
+        let boxCenterY = 240;
+        let prevBoxCenterX = 320;
+        let prevBoxCenterY = 240;
+        let boxSize = 220;
+        
+        let prevTriggerTouchActive = false;
+        let presetTransitionTimer = 0;
+        
+        // FPS tracking variables
+        let lastFrameTime = performance.now();
+        let frameCount = 0;
+        let fpsDisplay = 60.0;
+        let fpsLastUpdate = performance.now();
+
+        // --- MediaPipe Hands Hook ---
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/${file}`
+        });
+
+        hands.setOptions({
+            maxNumHands: 2,
+            modelComplexity: 0, // Lightweight tracking for CPU (vital for 60 FPS)
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        hands.onResults(onResults);
+
+        // Core draw loop trigger on hand model output
+        function onResults(results) {
+            if (loadingOverlay.style.opacity !== '0') {
+                loadingOverlay.style.opacity = '0';
+                setTimeout(() => loadingOverlay.style.display = 'none', 500);
+            }
+
+            const w = canvasElement.width;
+            const h = canvasElement.height;
+
+            canvasCtx.clearRect(0, 0, w, h);
+
+            // Draw full video frame mirror-reflected (Aspect ratio cover logic)
+            const videoW = results.image.width || 640;
+            const videoH = results.image.height || 480;
+            const videoRatio = videoW / videoH;
+            const canvasRatio = w / h;
+            
+            let drawW, drawH, drawX, drawY;
+            if (canvasRatio > videoRatio) {
+                drawW = w;
+                drawH = w / videoRatio;
+                drawX = 0;
+                drawY = (h - drawH) / 2;
+            } else {
+                drawH = h;
+                drawW = h * videoRatio;
+                drawY = 0;
+                drawX = (w - drawW) / 2;
+            }
+
+            canvasCtx.save();
+            canvasCtx.translate(w, 0);
+            canvasCtx.scale(-1, 1);
+            canvasCtx.drawImage(results.image, w - drawX - drawW, drawY, drawW, drawH);
+            canvasCtx.restore();
+
+            const handsData = [];
+            let triggerTouchActive = false;
+
+            if (results.multiHandLandmarks) {
+                for (let handIdx = 0; handIdx < results.multiHandLandmarks.length; handIdx++) {
+                    const landmarks = results.multiHandLandmarks[handIdx];
+                    
+                    const wrist = landmarks[0];
+                    const thumb = landmarks[4];
+                    const index = landmarks[8];
+                    const middleMcp = landmarks[9];
+                    const middle = landmarks[12];
+                    
+                    // Coordinates in pixels, mapped to cover bounds
+                    const wristX = Math.round(drawX + (1 - wrist.x) * drawW);
+                    const wristY = Math.round(drawY + wrist.y * drawH);
+                    const thumbX = Math.round(drawX + (1 - thumb.x) * drawW);
+                    const thumbY = Math.round(drawY + thumb.y * drawH);
+                    const indexX = Math.round(drawX + (1 - index.x) * drawW);
+                    const indexY = Math.round(drawY + index.y * drawH);
+                    const mcpX = Math.round(drawX + (1 - middleMcp.x) * drawW);
+                    const mcpY = Math.round(drawY + middleMcp.y * drawH);
+                    const middleX = Math.round(drawX + (1 - middle.x) * drawW);
+                    const middleY = Math.round(drawY + middle.y * drawH);
+
+                    // Midpoint Thumb + Index (Pinch point)
+                    const pinchX = Math.round((thumbX + indexX) / 2);
+                    const pinchY = Math.round((thumbY + indexY) / 2);
+
+                    // Distance thumb to index (checks pinch vs spread)
+                    const pinchDist = Math.sqrt(Math.pow(thumbX - indexX, 2) + Math.pow(thumbY - indexY, 2));
+
+                    // Index-Middle Touching gesture distance
+                    const touchDist = Math.sqrt(Math.pow(index.x - middle.x, 2) + Math.pow(index.y - middle.y, 2));
+                    const isTouching = touchDist < 0.038;
+
+                    if (isTouching) {
+                        triggerTouchActive = true;
+                    }
+
+                    // --- Proximity / Z-Depth Radar ---
+                    const depthPixelDist = Math.sqrt(Math.pow(wristX - mcpX, 2) + Math.pow(wristY - mcpY, 2));
+                    const radarRadius = 16 + (depthPixelDist * 0.22);
+                    const pulse = 1.0 + Math.sin(Date.now() * 0.012) * 0.08;
+                    const activeRadius = radarRadius * pulse;
+                    const depthNormalized = Math.min(1.0, depthPixelDist / 120);
+
+                    // Only draw skeleton/radar guides if showHelpers is active
+                    if (showHelpers) {
+                        // Outer pulsing radar ring (gold glow)
+                        canvasCtx.save();
+                        canvasCtx.beginPath();
+                        canvasCtx.arc(pinchX, pinchY, activeRadius, 0, 2 * Math.PI);
+                        canvasCtx.strokeStyle = `rgba(201, 168, 124, ${depthNormalized})`;
+                        canvasCtx.lineWidth = 1.2 + (depthPixelDist / 85);
+                        canvasCtx.shadowColor = 'rgba(201, 168, 124, 0.4)';
+                        canvasCtx.shadowBlur = 8;
+                        canvasCtx.stroke();
+                        
+                        // Inner concentric radar ring
+                        canvasCtx.beginPath();
+                        canvasCtx.arc(pinchX, pinchY, activeRadius - 6, 0, 2 * Math.PI);
+                        canvasCtx.strokeStyle = `rgba(201, 168, 124, ${depthNormalized * 0.4})`;
+                        canvasCtx.lineWidth = 0.5;
+                        canvasCtx.stroke();
+                        canvasCtx.restore();
+
+                        // --- Visual Helper Guidelines ---
+                        // Draw Thumb-Index pinch line (Sky Blue)
+                        canvasCtx.beginPath();
+                        canvasCtx.moveTo(thumbX, thumbY);
+                        canvasCtx.lineTo(indexX, indexY);
+                        canvasCtx.strokeStyle = 'rgba(0, 191, 255, 0.5)';
+                        canvasCtx.lineWidth = 1;
+                        canvasCtx.stroke();
+
+                        // Circles at joints
+                        canvasCtx.beginPath();
+                        canvasCtx.arc(thumbX, thumbY, 4, 0, 2 * Math.PI);
+                        canvasCtx.arc(indexX, indexY, 4, 0, 2 * Math.PI);
+                        canvasCtx.fillStyle = 'rgb(0, 191, 255)';
+                        canvasCtx.fill();
+
+                        // Index-Middle connection line (Green if touching, Pink/Red if open)
+                        canvasCtx.beginPath();
+                        canvasCtx.moveTo(indexX, indexY);
+                        canvasCtx.lineTo(middleX, middleY);
+                        canvasCtx.strokeStyle = isTouching ? '#00ff00' : 'rgba(255, 99, 132, 0.5)';
+                        canvasCtx.lineWidth = isTouching ? 2.2 : 1;
+                        canvasCtx.stroke();
+
+                        canvasCtx.beginPath();
+                        canvasCtx.arc(middleX, middleY, 4, 0, 2 * Math.PI);
+                        canvasCtx.fillStyle = isTouching ? '#00ff00' : 'rgb(255, 99, 132)';
+                        canvasCtx.fill();
+                    }
+
+                    // Record structured data for sorting roles
+                    handsData.push({
+                        pinch: { x: pinchX, y: pinchY },
+                        index: { x: indexX, y: indexY },
+                        thumb: { x: thumbX, y: thumbY },
+                        dist: pinchDist,
+                        depth: depthPixelDist
+                    });
+                }
+            }
+
+            // --- Bounding Mesh & Rendering Solver ---
+            const presetIdx = currentFilterIdx % prismPresets.length;
+            const preset = prismPresets[presetIdx];
+
+            if (handsData.length === 2) {
+                // DUAL HAND MODE: Solve Vertex vs Base Triangle structure
+                handsData.sort((a, b) => a.dist - b.dist);
+                
+                const vertexHand = handsData[0];
+                const baseHand = handsData[1];
+                
+                const v1 = vertexHand.pinch; // Tip
+                const v2 = baseHand.index; // Base Top
+                const v3 = baseHand.thumb; // Base Bottom
+
+                // Calculate base partitions B1 (1/3 point) and B2 (2/3 point)
+                const b1 = {
+                    x: Math.round(v2.x + (v3.x - v2.x) / 3),
+                    y: Math.round(v2.y + (v3.y - v2.y) / 3)
+                };
+                const b2 = {
+                    x: Math.round(v2.x + 2 * (v3.x - v2.x) / 3),
+                    y: Math.round(v2.y + 2 * (v3.y - v2.y) / 3)
+                };
+
+                // Modulate audio parameters dynamically
+                if (audioCtx && isAudioEnabled && resonantFilter && oscillator && synthGainNode) {
+                    const freq = 85 + (1.0 - (v1.y / 480)) * 435; // height maps to frequency
+                    oscillator.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.05);
+                    
+                    const baseWidth = Math.sqrt(Math.pow(v2.x - v3.x, 2) + Math.pow(v2.y - v3.y, 2));
+                    const cutoff = 180 + Math.min(1.0, baseWidth / 250) * 2620; // width maps to filter cutoff
+                    resonantFilter.frequency.setTargetAtTime(cutoff, audioCtx.currentTime, 0.05);
+                    
+                    const avgDepth = (vertexHand.depth + baseHand.depth) / 2;
+                    const targetGain = 0.04 + Math.min(1.0, avgDepth / 130) * 0.11; // depth maps to loudness
+                    synthGainNode.gain.setTargetAtTime(targetGain, audioCtx.currentTime, 0.05);
+                }
+
+                // --- Render Band 1 (Top) ---
+                canvasCtx.save();
+                canvasCtx.beginPath();
+                canvasCtx.moveTo(v1.x, v1.y);
+                canvasCtx.lineTo(v2.x, v2.y);
+                canvasCtx.lineTo(b1.x, b1.y);
+                canvasCtx.closePath();
+                canvasCtx.clip();
+                
+                let xMin = Math.min(v1.x, v2.x, b1.x);
+                let yMin = Math.min(v1.y, v2.y, b1.y);
+                let xMax = Math.max(v1.x, v2.x, b1.x);
+                let yMax = Math.max(v1.y, v2.y, b1.y);
+                let wBand = xMax - xMin;
+                let hBand = yMax - yMin;
+                
+                if (wBand > 5 && hBand > 5) {
+                    const originalData = canvasCtx.getImageData(xMin, yMin, wBand, hBand);
+                    preset.top(canvasCtx, xMin, yMin, wBand, hBand, originalData);
+                }
+                canvasCtx.restore();
+
+                // --- Render Band 2 (Middle) ---
+                canvasCtx.save();
+                canvasCtx.beginPath();
+                canvasCtx.moveTo(v1.x, v1.y);
+                canvasCtx.lineTo(b1.x, b1.y);
+                canvasCtx.lineTo(b2.x, b2.y);
+                canvasCtx.closePath();
+                canvasCtx.clip();
+                
+                xMin = Math.min(v1.x, b1.x, b2.x);
+                yMin = Math.min(v1.y, b1.y, b2.y);
+                xMax = Math.max(v1.x, b1.x, b2.x);
+                yMax = Math.max(v1.y, b1.y, b2.y);
+                wBand = xMax - xMin;
+                hBand = yMax - yMin;
+                
+                if (wBand > 5 && hBand > 5) {
+                    const originalData = canvasCtx.getImageData(xMin, yMin, wBand, hBand);
+                    preset.mid(canvasCtx, xMin, yMin, wBand, hBand, originalData);
+                }
+                canvasCtx.restore();
+
+                // --- Render Band 3 (Bottom) ---
+                canvasCtx.save();
+                canvasCtx.beginPath();
+                canvasCtx.moveTo(v1.x, v1.y);
+                canvasCtx.lineTo(b2.x, b2.y);
+                canvasCtx.lineTo(v3.x, v3.y);
+                canvasCtx.closePath();
+                canvasCtx.clip();
+                
+                xMin = Math.min(v1.x, b2.x, v3.x);
+                yMin = Math.min(v1.y, b2.y, v3.y);
+                xMax = Math.max(v1.x, b2.x, v3.x);
+                yMax = Math.max(v1.y, b2.y, v3.y);
+                wBand = xMax - xMin;
+                hBand = yMax - yMin;
+                
+                if (wBand > 5 && hBand > 5) {
+                    const originalData = canvasCtx.getImageData(xMin, yMin, wBand, hBand);
+                    preset.bot(canvasCtx, xMin, yMin, wBand, hBand, originalData);
+                }
+                canvasCtx.restore();
+
+                // --- Draw Boundary Lines ---
+                // Side lines are drawn as straight borders
+                canvasCtx.beginPath();
+                canvasCtx.moveTo(v1.x, v1.y);
+                canvasCtx.lineTo(v2.x, v2.y);
+                canvasCtx.moveTo(v1.x, v1.y);
+                canvasCtx.lineTo(v3.x, v3.y);
+                canvasCtx.strokeStyle = '#c9a87c';
+                canvasCtx.lineWidth = 2.5;
+                canvasCtx.stroke();
+
+                // Base line is drawn as a real-time reactive audio visualizer!
+                canvasCtx.beginPath();
+                if (analyser && isAudioEnabled && audioDataArray) {
+                    analyser.getByteTimeDomainData(audioDataArray);
+                    
+                    const baseDx = v3.x - v2.x;
+                    const baseDy = v3.y - v2.y;
+                    const baseLen = Math.sqrt(baseDx * baseDx + baseDy * baseDy);
+                    const perpX = -baseDy / (baseLen || 1);
+                    const perpY = baseDx / (baseLen || 1);
+                    
+                    canvasCtx.moveTo(v2.x, v2.y);
+                    
+                    const count = audioDataArray.length;
+                    for (let i = 0; i < count; i++) {
+                        const t = i / (count - 1);
+                        const lx = v2.x + t * baseDx;
+                        const ly = v2.y + t * baseDy;
+                        const amp = (audioDataArray[i] - 128) / 128.0; 
+                        const displace = amp * 28.0; // max displacement in pixels
+                        canvasCtx.lineTo(lx + perpX * displace, ly + perpY * displace);
+                    }
+                } else {
+                    canvasCtx.moveTo(v2.x, v2.y);
+                    canvasCtx.lineTo(v3.x, v3.y);
+                }
+                canvasCtx.strokeStyle = '#c9a87c';
+                canvasCtx.lineWidth = 2.5;
+                canvasCtx.stroke();
+
+                // Draw thin dividers inside prism
+                canvasCtx.beginPath();
+                canvasCtx.moveTo(v1.x, v1.y);
+                canvasCtx.lineTo(b1.x, b1.y);
+                canvasCtx.moveTo(v1.x, v1.y);
+                canvasCtx.lineTo(b2.x, b2.y);
+                canvasCtx.strokeStyle = 'rgba(201, 168, 124, 0.4)';
+                canvasCtx.lineWidth = 1;
+                canvasCtx.stroke();
+
+                // --- Emitter Spark Particles (Along Base Line) ---
+                const triangleCenterX = Math.round((v1.x + v2.x + v3.x) / 3);
+                const triangleCenterY = Math.round((v1.y + v2.y + v3.y) / 3);
+                const dx = triangleCenterX - prevBoxCenterX;
+                const dy = triangleCenterY - prevBoxCenterY;
+                const speed = Math.sqrt(dx * dx + dy * dy);
+                
+                let pColor = 'rgba(201, 168, 124, ';
+                if (presetIdx === 0) {
+                    pColor = Math.random() > 0.5 ? 'rgba(0, 100, 255, ' : 'rgba(255, 50, 50, ';
+                } else if (presetIdx === 1) {
+                    pColor = Math.random() > 0.5 ? 'rgba(0, 255, 255, ' : 'rgba(255, 99, 132, ';
+                } else if (presetIdx === 2) {
+                    pColor = 'rgba(0, 255, 50, ';
+                } else if (presetIdx === 3) {
+                    pColor = Math.random() > 0.5 ? 'rgba(255, 0, 128, ' : 'rgba(0, 255, 200, ';
+                }
+
+                if (speed > 2.0) {
+                    const oppX = -dx / speed;
+                    const oppY = -dy / speed;
+                    for (let k = 0; k < 3; k++) {
+                        const t = Math.random();
+                        const px = Math.round(v2.x + t * (v3.x - v2.x));
+                        const py = Math.round(v2.y + t * (v3.y - v2.y));
+                        const vx = oppX * (0.8 + Math.random() * 1.5) + (Math.random() - 0.5) * 1.2;
+                        const vy = oppY * (0.8 + Math.random() * 1.5) + (Math.random() - 0.5) * 1.2;
+                        particles.push(new Particle(px, py, vx, vy, pColor));
+                    }
+                }
+
+                // --- Flowing particles from V1 towards center of base ---
+                const baseMidX = (v2.x + v3.x) / 2;
+                const baseMidY = (v2.y + v3.y) / 2;
+                const streamDirX = baseMidX - v1.x;
+                const streamDirY = baseMidY - v1.y;
+                const streamDist = Math.sqrt(streamDirX * streamDirX + streamDirY * streamDirY);
+                
+                if (streamDist > 20) {
+                    const ndx = streamDirX / streamDist;
+                    const ndy = streamDirY / streamDist;
+                    if (Math.random() < 0.75) {
+                        const flowSpeed = 2.0 + Math.random() * 4.0;
+                        const perpX = -ndy;
+                        const perpY = ndx;
+                        const spread = (Math.random() - 0.5) * 1.8; 
+                        
+                        const vx = ndx * flowSpeed + perpX * spread;
+                        const vy = ndy * flowSpeed + perpY * spread;
+                        particles.push(new Particle(v1.x, v1.y, vx, vy, pColor));
+                    }
+                }
+
+                prevBoxCenterX = triangleCenterX;
+                prevBoxCenterY = triangleCenterY;
+            } else {
+                // Ramp down sound if not 2 hands
+                if (synthGainNode) {
+                    synthGainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
+                }
+            }
+
+            // --- Update and Draw Particles ---
+            for (let idx = particles.length - 1; idx >= 0; idx--) {
+                const p = particles[idx];
+                p.update();
+                if (p.life <= 0) {
+                    particles.splice(idx, 1);
+                } else {
+                    p.draw(canvasCtx);
+                }
+            }
+
+            // --- Draw Transition Flash ---
+            if (presetTransitionTimer > 0) {
+                canvasCtx.fillStyle = `rgba(201, 168, 124, ${presetTransitionTimer * 0.16})`;
+                canvasCtx.fillRect(0, 0, w, h);
+                presetTransitionTimer -= 0.08; 
+            }
+
+            // --- Trigger Manual Cycling on Gesture ---
+            if (triggerTouchActive && !prevTriggerTouchActive) {
+                setFilterPreset(currentFilterIdx + 1);
+            }
+            prevTriggerTouchActive = triggerTouchActive;
+
+            // --- Update Diagnostics & HUD Panel ---
+            frameCount++;
+            const currentTime = performance.now();
+            if (currentTime - fpsLastUpdate >= 500) {
+                fpsDisplay = (frameCount * 1000) / (currentTime - fpsLastUpdate);
+                frameCount = 0;
+                fpsLastUpdate = currentTime;
+
+                // Sync diagnostics elements
+                const fpsVal = document.getElementById('fps-val');
+                if (fpsVal) {
+                    fpsVal.textContent = fpsDisplay.toFixed(1);
+                    fpsVal.style.color = fpsDisplay >= 55 ? '#00ff88' : (fpsDisplay >= 30 ? '#ffaa00' : '#ff3333');
+                }
+            }
+
+            const handsVal = document.getElementById('hands-val');
+            if (handsVal) {
+                handsVal.textContent = `${handsData.length} / 2`;
+                handsVal.style.color = handsData.length === 2 ? '#00ff88' : (handsData.length === 1 ? '#ffaa00' : '#ff3333');
+            }
+        }
+
+        // --- Custom Robust Camera Loop ---
+        let active = true;
+
+        async function startWebcam() {
+            try {
+                // Request camera permission
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: 640,
+                        height: 480,
+                        frameRate: { ideal: 60 }
+                    }
+                });
+                
+                videoElement.srcObject = stream;
+                
+                await new Promise((resolve) => {
+                    videoElement.onloadedmetadata = () => {
+                        videoElement.play().then(resolve);
+                    };
+                });
+
+                requestAnimationFrame(processFrame);
+            } catch (err) {
+                console.error("Camera access failed: ", err);
+                loadingText.innerHTML = `<span style="color:#ff3333">CAMERA ACCESS FAILED.<br>PLEASE ALLOW CAMERA PERMISSION AND REFRESH.</span>`;
+                document.querySelector('.spinner').style.display = 'none';
+            }
+        }
+
+        async function processFrame() {
+            if (!active) return;
+            
+            if (videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
+                try {
+                    await hands.send({ image: videoElement });
+                } catch (e) {
+                    console.error("MediaPipe hands processing failed:", e);
+                }
+            }
+            
+            requestAnimationFrame(processFrame);
+        }
+
+        // Initialize webcam
+        startWebcam();
+
+        // --- Keyboard Controls ---
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' || e.key === 'c' || e.key === 'C') {
+                setFilterPreset(currentFilterIdx + 1);
+                e.preventDefault();
+            } else if (e.key === 'h' || e.key === 'H') {
+                toggleHelpers();
+                e.preventDefault();
+            } else if (e.key === 'm' || e.key === 'M') {
+                toggleAudio();
+                e.preventDefault();
+            } else if (e.key === 'd' || e.key === 'D') {
+                toggleDashboardCollapse();
+                e.preventDefault();
+            }
+        });
+
+        // --- Tap (Click/Touch) Controls ---
+        canvasElement.addEventListener('click', () => {
+            setFilterPreset(currentFilterIdx + 1);
+        });
+        canvasElement.addEventListener('touchstart', (e) => {
+            setFilterPreset(currentFilterIdx + 1);
+            e.preventDefault();
+        });
+    </script>
+</body>
+</html>
