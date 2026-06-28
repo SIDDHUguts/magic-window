@@ -465,6 +465,15 @@
             </div>
         </div>
 
+        <div class="hud-section" style="border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 15px;">
+            <h3>TRACKING DIAGNOSTICS</h3>
+            <div style="font-family: monospace; font-size: 11px; opacity: 0.85; line-height: 1.6;">
+                <div>Hands detected: <span id="debug-hands" class="accent-text">0</span></div>
+                <div>Fingers extended: <span id="debug-fingers" class="accent-text">0</span></div>
+                <div>Shape status: <span id="debug-status" class="accent-text">WAITING (Needs 3+ fingers)</span></div>
+            </div>
+        </div>
+
         <div class="hud-footer">
             <div class="hud-footer-item">
                 <span class="key-badge">SPACE</span> <span>Cycle Presets</span>
@@ -1440,21 +1449,31 @@
                     const depthPixelDist = Math.sqrt(Math.pow(wristX - mcpX, 2) + Math.pow(wristY - mcpY, 2));
                     totalHandDepth += depthPixelDist;
 
-                    // Gestures: check if fingers are extended (upright)
+                    // Gestures: check if fingers are extended (using wrist-distance ratio for 3D orientation invariance)
+                    const isExtended = (tipIdx, mcpIdx) => {
+                        const tip = landmarks[tipIdx];
+                        const mcp = landmarks[mcpIdx];
+                        const dTip = Math.sqrt(Math.pow(tip.x - wrist.x, 2) + Math.pow(tip.y - wrist.y, 2) + Math.pow(tip.z - wrist.z, 2));
+                        const dMcp = Math.sqrt(Math.pow(mcp.x - wrist.x, 2) + Math.pow(mcp.y - wrist.y, 2) + Math.pow(mcp.z - wrist.z, 2));
+                        return dTip > dMcp * 1.25; 
+                    };
+
                     // Index
-                    if (indexTip.y < indexPip.y) {
+                    const indexUp = isExtended(8, 5);
+                    if (indexUp) {
                         activeFingers.push({ x: indexX, y: indexY });
                     }
                     // Middle
-                    if (middleTip.y < middlePip.y) {
+                    const middleUp = isExtended(12, 9);
+                    if (middleUp) {
                         activeFingers.push({ x: middleX, y: middleY });
                     }
                     // Ring
-                    if (ringTip.y < ringPip.y) {
+                    if (isExtended(16, 13)) {
                         activeFingers.push({ x: ringX, y: ringY });
                     }
                     // Pinky
-                    if (pinkyTip.y < pinkyPip.y) {
+                    if (isExtended(20, 17)) {
                         activeFingers.push({ x: pinkyX, y: pinkyY });
                     }
                     // Thumb (check spread distance from index knuckle)
@@ -1465,7 +1484,7 @@
 
                     // Index-Middle Touching gesture check to cycle presets
                     const touchDist = Math.sqrt(Math.pow(indexTip.x - middleTip.x, 2) + Math.pow(indexTip.y - middleTip.y, 2));
-                    if (touchDist < 0.038 && indexTip.y < indexPip.y && middleTip.y < middlePip.y) {
+                    if (touchDist < 0.038 && indexUp && middleUp) {
                         triggerTouchActive = true;
                     }
 
@@ -1823,8 +1842,32 @@
 
             const handsVal = document.getElementById('hands-val');
             if (handsVal) {
-                handsVal.textContent = `${handsData.length} / 2`;
-                handsVal.style.color = handsData.length === 2 ? '#00ff88' : (handsData.length === 1 ? '#ffaa00' : '#ff3333');
+                handsVal.textContent = `${handCount} / 2`;
+                handsVal.style.color = handCount === 2 ? '#00ff88' : (handCount === 1 ? '#ffaa00' : '#ff3333');
+            }
+
+            // Sync tracking diagnostics in the HUD panel
+            const debugHands = document.getElementById('debug-hands');
+            if (debugHands) debugHands.innerText = handCount;
+            
+            const debugFingers = document.getElementById('debug-fingers');
+            if (debugFingers) debugFingers.innerText = activeFingers.length;
+            
+            const debugStatus = document.getElementById('debug-status');
+            if (debugStatus) {
+                const shapeN = activeFingers.length;
+                if (shapeN >= 3) {
+                    let shapeName = `${shapeN}-sided Polygon`;
+                    if (shapeN === 3) shapeName = "Triangle";
+                    else if (shapeN === 4) shapeName = "Rectangle/Square";
+                    else if (shapeN === 5) shapeName = "Pentagon";
+                    else if (shapeN === 6) shapeName = "Hexagon";
+                    debugStatus.innerText = `DRAWING (${shapeName})`;
+                    debugStatus.style.color = '#00ff88';
+                } else {
+                    debugStatus.innerText = `WAITING (Needs 3+ fingers)`;
+                    debugStatus.style.color = '#ffaa00';
+                }
             }
         }
 
