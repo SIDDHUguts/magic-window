@@ -451,6 +451,7 @@
                 <button class="preset-btn" data-preset="1" onclick="setFilterPreset(1)">Cyber Metal</button>
                 <button class="preset-btn" data-preset="2" onclick="setFilterPreset(2)">Digital Matrix</button>
                 <button class="preset-btn" data-preset="3" onclick="setFilterPreset(3)">Synthwave Glitch</button>
+                <button class="preset-btn" data-preset="4" onclick="setFilterPreset(4)" style="grid-column: span 2;">🔥 Eldritch Mandala</button>
             </div>
         </div>
 
@@ -1281,6 +1282,12 @@
                 top: (ctx, x, y, w, h) => applyChromaticAberration(ctx, x, y, w, h),
                 mid: (ctx, x, y, w, h) => applyNeonSpectrum(ctx, x, y, w, h),
                 bot: (ctx, x, y, w, h) => applyPixelate(ctx, x, y, w, h)
+            },
+            {
+                name: "Eldritch Mandala",
+                top: (ctx, x, y, w, h) => applyNeonSpectrum(ctx, x, y, w, h),
+                mid: (ctx, x, y, w, h) => applyEmboss(ctx, x, y, w, h),
+                bot: (ctx, x, y, w, h) => applyChromaticAberration(ctx, x, y, w, h)
             }
         ];
         
@@ -1640,7 +1647,12 @@
                     // 3. Modulate synthesizer parameters dynamically
                     if (audioCtx && isAudioEnabled && resonantFilter && oscillator && synthGainNode) {
                         // Centroid height maps to pitch frequency
-                        const freq = 85 + (1.0 - (cy / h)) * 435; 
+                        let freq = 85 + (1.0 - (cy / h)) * 435; 
+                        if (preset.name === "Eldritch Mandala") {
+                            // Add magical frequency wobble (vibrato)
+                            const wobble = Math.sin(Date.now() * 0.015) * 35;
+                            freq += wobble;
+                        }
                         oscillator.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.05);
                         
                         // Calculate average radius of the polygon (maps to filter cutoff)
@@ -1711,14 +1723,83 @@
                         }
                     }
 
+                    if (preset.name === "Eldritch Mandala") {
+                        // Draw radial glowing gold gradient inside the shape first
+                        canvasCtx.save();
+                        canvasCtx.beginPath();
+                        canvasCtx.moveTo(shapeVertices[0].x, shapeVertices[0].y);
+                        for (let i = 1; i < N; i++) {
+                            canvasCtx.lineTo(shapeVertices[i].x, shapeVertices[i].y);
+                        }
+                        canvasCtx.closePath();
+                        canvasCtx.clip();
+                        
+                        const grad = canvasCtx.createRadialGradient(cx, cy, 10, cx, cy, R);
+                        grad.addColorStop(0, 'rgba(255, 235, 160, 0.4)'); // Bright golden core
+                        grad.addColorStop(0.5, 'rgba(255, 120, 0, 0.25)'); // Orange
+                        grad.addColorStop(1, 'rgba(255, 40, 0, 0.02)'); // Outward red glow
+                        canvasCtx.fillStyle = grad;
+                        canvasCtx.fill();
+                        canvasCtx.restore();
+
+                        // Now draw rotating concentric dashed rings
+                        canvasCtx.save();
+                        canvasCtx.shadowColor = 'rgba(255, 100, 0, 0.9)'; // Glowing orange shadow
+                        canvasCtx.shadowBlur = 12 + micBassValue * 15;
+                        canvasCtx.strokeStyle = 'rgba(255, 140, 0, 0.85)';
+                        
+                        const rotTime = Date.now() * 0.001;
+
+                        // Ring 1: R * 0.45, rotates clockwise
+                        canvasCtx.beginPath();
+                        canvasCtx.arc(cx, cy, R * 0.45, 0, 2 * Math.PI);
+                        canvasCtx.lineWidth = 2.5 + micBassValue * 3;
+                        canvasCtx.setLineDash([12, 18]);
+                        canvasCtx.save();
+                        canvasCtx.translate(cx, cy);
+                        canvasCtx.rotate(rotTime * 0.8);
+                        canvasCtx.translate(-cx, -cy);
+                        canvasCtx.stroke();
+                        canvasCtx.restore();
+
+                        // Ring 2: R * 0.75, rotates counter-clockwise
+                        canvasCtx.beginPath();
+                        canvasCtx.arc(cx, cy, R * 0.75, 0, 2 * Math.PI);
+                        canvasCtx.lineWidth = 1.8 + micBassValue * 2;
+                        canvasCtx.setLineDash([5, 8, 20, 8]);
+                        canvasCtx.save();
+                        canvasCtx.translate(cx, cy);
+                        canvasCtx.rotate(-rotTime * 0.5);
+                        canvasCtx.translate(-cx, -cy);
+                        canvasCtx.stroke();
+                        canvasCtx.restore();
+
+                        // Ring 3: R * 0.92, thin outer solid ring
+                        canvasCtx.beginPath();
+                        canvasCtx.arc(cx, cy, R * 0.92, 0, 2 * Math.PI);
+                        canvasCtx.lineWidth = 1.2;
+                        canvasCtx.setLineDash([]);
+                        canvasCtx.stroke();
+                        
+                        canvasCtx.restore();
+                    }
+
                     // 5. Draw Outer Boundary Visualizer Lines (React to music throb)
                     canvasCtx.beginPath();
                     for (let i = 0; i < N; i++) {
                         drawWaveformLine(canvasCtx, shapeVertices[i], shapeVertices[(i + 1) % N]);
                     }
-                    canvasCtx.strokeStyle = themes[activeTheme].primary;
+                    if (preset.name === "Eldritch Mandala") {
+                        canvasCtx.save();
+                        canvasCtx.shadowColor = 'rgba(255, 60, 0, 0.8)';
+                        canvasCtx.shadowBlur = 12 + micBassValue * 10;
+                        canvasCtx.strokeStyle = 'rgba(255, 100, 0, 0.95)';
+                    } else {
+                        canvasCtx.strokeStyle = themes[activeTheme].primary;
+                    }
                     canvasCtx.lineWidth = 2.5 + micBassValue * 6.0; 
                     canvasCtx.stroke();
+                    if (preset.name === "Eldritch Mandala") canvasCtx.restore();
 
                     // 6. Draw Internal Dividers (Fanning from Center to each finger Tip)
                     canvasCtx.beginPath();
@@ -1726,7 +1807,11 @@
                         canvasCtx.moveTo(cx, cy);
                         canvasCtx.lineTo(shapeVertices[i].x, shapeVertices[i].y);
                     }
-                    canvasCtx.strokeStyle = themes[activeTheme].glow;
+                    if (preset.name === "Eldritch Mandala") {
+                        canvasCtx.strokeStyle = 'rgba(255, 140, 0, 0.7)';
+                    } else {
+                        canvasCtx.strokeStyle = themes[activeTheme].glow;
+                    }
                     canvasCtx.lineWidth = 1 + micBassValue * 2.0;
                     canvasCtx.stroke();
 
@@ -1751,7 +1836,9 @@
                     const speed = Math.sqrt(dx * dx + dy * dy);
 
                     let pColor = themes[activeTheme].particle;
-                    if (activeTheme === 'gold') {
+                    if (preset.name === "Eldritch Mandala") {
+                        pColor = Math.random() > 0.45 ? 'rgba(255, 120, 0, ' : 'rgba(255, 215, 60, ';
+                    } else if (activeTheme === 'gold') {
                         if (currentFilterIdx === 0) {
                             pColor = Math.random() > 0.5 ? 'rgba(0, 100, 255, ' : 'rgba(255, 50, 50, ';
                         } else if (currentFilterIdx === 1) {
@@ -1802,8 +1889,14 @@
                                 const perpY = ndx;
                                 const spread = (Math.random() - 0.5) * 1.8; 
                                 
-                                const vx = ndx * flowSpeed + perpX * spread;
-                                const vy = ndy * flowSpeed + perpY * spread;
+                                // Spiral vortex force for Eldritch Mandala!
+                                let spiralSpeed = 0;
+                                if (preset.name === "Eldritch Mandala") {
+                                    spiralSpeed = (4.0 + Math.random() * 5.0) * (1.0 + micBassValue * 1.8);
+                                }
+
+                                const vx = ndx * flowSpeed + perpX * (spread + spiralSpeed);
+                                const vy = ndy * flowSpeed + perpY * (spread + spiralSpeed);
                                 particles.push(new Particle(cx, cy, vx, vy, pColor));
                             }
                         }
