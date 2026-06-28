@@ -241,6 +241,46 @@
             box-shadow: 0 0 15px rgba(201, 168, 124, 0.12);
         }
 
+        .theme-selector-grid {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            justify-content: flex-start;
+            padding: 4px 2px;
+        }
+
+        .theme-dot {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            outline: none;
+        }
+
+        .theme-dot:hover {
+            transform: scale(1.2);
+            border-color: rgba(255, 255, 255, 0.6);
+        }
+
+        .theme-dot.active {
+            border-color: #fff;
+            box-shadow: 0 0 12px var(--accent-glow);
+            transform: scale(1.15);
+        }
+
+        /* Camera shutter flash effect overlay */
+        #shutter-flash {
+            position: absolute;
+            inset: 0;
+            background: #ffffff;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 9;
+            transition: opacity 0.15s ease-out;
+        }
+
         .hud-footer {
             display: flex;
             flex-direction: column;
@@ -344,6 +384,7 @@
     </style>
 </head>
 <body>
+    <div id="shutter-flash"></div>
     <div class="ambient-glow glow-top"></div>
     <div class="ambient-glow glow-bottom"></div>
 
@@ -388,6 +429,12 @@
                 <button id="toggle-audio" class="hud-btn muted" onclick="toggleAudio()">
                     <span class="icon">🔇</span> Sound: MUTED
                 </button>
+                <button id="toggle-mic" class="hud-btn off" onclick="toggleMic()">
+                    <span class="icon">🎤</span> Mic Beat: OFF
+                </button>
+                <button id="btn-snapshot" class="hud-btn" onclick="takeSnapshot()">
+                    <span class="icon">📸</span> Take Snapshot
+                </button>
                 <button id="toggle-helpers" class="hud-btn off" onclick="toggleHelpers()">
                     <span class="icon">👁️‍🗨️</span> Guides: HIDDEN
                 </button>
@@ -407,6 +454,17 @@
             </div>
         </div>
 
+        <div class="hud-section">
+            <h3>THEME COLOR</h3>
+            <div class="theme-selector-grid">
+                <button class="theme-dot active" data-theme="gold" onclick="setTheme('gold')" style="background: #c9a87c;" title="Gold Dust"></button>
+                <button class="theme-dot" data-theme="cyber" onclick="setTheme('cyber')" style="background: linear-gradient(135deg, #ff007f, #00ffff);" title="Cyberpunk"></button>
+                <button class="theme-dot" data-theme="toxic" onclick="setTheme('toxic')" style="background: #39ff14;" title="Toxic Acid"></button>
+                <button class="theme-dot" data-theme="matrix" onclick="setTheme('matrix')" style="background: #00ff66;" title="Deep Matrix"></button>
+                <button class="theme-dot" data-theme="sunset" onclick="setTheme('sunset')" style="background: linear-gradient(135deg, #ff5e62, #ff9966);" title="Retro Sunset"></button>
+            </div>
+        </div>
+
         <div class="hud-footer">
             <div class="hud-footer-item">
                 <span class="key-badge">SPACE</span> <span>Cycle Presets</span>
@@ -416,6 +474,9 @@
             </div>
             <div class="hud-footer-item">
                 <span class="key-badge">M</span> <span>Mute / Unmute Synth</span>
+            </div>
+            <div class="hud-footer-item">
+                <span class="key-badge">S</span> <span>Take Snapshot</span>
             </div>
             <div class="hud-footer-item">
                 <span class="key-badge">D</span> <span>Toggle Controls</span>
@@ -469,6 +530,118 @@
 
         // --- Helper Guides Overlay State ---
         let showHelpers = false;
+
+        // --- Live Color Themes Configuration ---
+        const themes = {
+            gold: {
+                primary: '#c9a87c',
+                glow: 'rgba(201, 168, 124, 0.3)',
+                particle: 'rgba(201, 168, 124, '
+            },
+            cyber: {
+                primary: '#ff007f',
+                glow: 'rgba(255, 0, 127, 0.3)',
+                particle: 'rgba(255, 0, 127, '
+            },
+            toxic: {
+                primary: '#39ff14',
+                glow: 'rgba(57, 255, 20, 0.3)',
+                particle: 'rgba(57, 255, 20, '
+            },
+            matrix: {
+                primary: '#00ff66',
+                glow: 'rgba(0, 255, 102, 0.3)',
+                particle: 'rgba(0, 255, 102, '
+            },
+            sunset: {
+                primary: '#ff5e62',
+                glow: 'rgba(255, 94, 98, 0.3)',
+                particle: 'rgba(255, 94, 98, '
+            }
+        };
+
+        let activeTheme = 'gold';
+
+        function setTheme(themeName) {
+            if (!themes[themeName]) return;
+            activeTheme = themeName;
+            const theme = themes[themeName];
+            
+            // Update CSS variables dynamically
+            document.documentElement.style.setProperty('--accent', theme.primary);
+            document.documentElement.style.setProperty('--accent-glow', theme.glow);
+            
+            // Update theme dot selection active state classes
+            const dots = document.querySelectorAll('.theme-dot');
+            dots.forEach(dot => {
+                if (dot.getAttribute('data-theme') === themeName) {
+                    dot.classList.add('active');
+                } else {
+                    dot.classList.remove('active');
+                }
+            });
+            
+            console.log(`Accent theme set to: ${themeName}`);
+        }
+
+        // --- Live Microphone Audio Reactivity Configuration ---
+        let micStream = null;
+        let micSource = null;
+        let micAnalyser = null;
+        let micDataArray = null;
+        let isMicEnabled = false;
+        let micVolumeValue = 0; 
+        let micBassValue = 0; 
+
+        async function toggleMic() {
+            isMicEnabled = !isMicEnabled;
+            const btn = document.getElementById('toggle-mic');
+            
+            if (isMicEnabled) {
+                try {
+                    // Request microphone device stream
+                    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    
+                    if (!audioCtx) {
+                        initSynth();
+                    }
+                    if (audioCtx && audioCtx.state === 'suspended') {
+                        audioCtx.resume();
+                    }
+                    
+                    micSource = audioCtx.createMediaStreamSource(micStream);
+                    micAnalyser = audioCtx.createAnalyser();
+                    micAnalyser.fftSize = 256;
+                    micDataArray = new Uint8Array(micAnalyser.frequencyBinCount);
+                    
+                    micSource.connect(micAnalyser);
+                    
+                    btn.innerHTML = '<span class="icon">🎤</span> Mic Beat: ACTIVE';
+                    btn.className = 'hud-btn active';
+                    console.log("Microphone reactivity stream connected successfully.");
+                } catch (err) {
+                    console.error("Microphone device access failed:", err);
+                    isMicEnabled = false;
+                    btn.innerHTML = '<span class="icon">🎤</span> Mic Beat: FAILED';
+                    btn.className = 'hud-btn muted';
+                }
+            } else {
+                if (micStream) {
+                    micStream.getTracks().forEach(track => track.stop());
+                    micStream = null;
+                }
+                if (micSource) {
+                    micSource.disconnect();
+                    micSource = null;
+                }
+                micAnalyser = null;
+                micVolumeValue = 0;
+                micBassValue = 0;
+                
+                btn.innerHTML = '<span class="icon">🎤</span> Mic Beat: OFF';
+                btn.className = 'hud-btn off';
+            }
+        }
 
         function toggleHelpers(forceState) {
             if (forceState !== undefined) {
@@ -843,7 +1016,7 @@
             const data = imgData.data;
             const output = new Uint8ClampedArray(data.length);
             
-            const shift = 7; // pixel shift for color channels
+            const shift = 7 + Math.round(micBassValue * 14); // Shift increases with mic bass!
             
             for (let r = 0; r < h; r++) {
                 for (let c = 0; c < w; c++) {
@@ -866,11 +1039,11 @@
                 }
             }
             
-            // Random horizontal glitch scanline offset
-            if (Math.random() < 0.12) {
+            // Random horizontal glitch scanline offset (more frequent and wider shift with mic bass)
+            if (Math.random() < 0.12 + micBassValue * 0.3) {
                 const scanRow = Math.floor(Math.random() * h);
-                const scanHeight = 2 + Math.floor(Math.random() * 5);
-                const scanShift = Math.floor((Math.random() - 0.5) * 16);
+                const scanHeight = 2 + Math.floor(Math.random() * 5 + micBassValue * 15);
+                const scanShift = Math.floor((Math.random() - 0.5) * (16 + micBassValue * 60));
                 
                 for (let r = scanRow; r < Math.min(h, scanRow + scanHeight); r++) {
                     for (let c = 0; c < w; c++) {
@@ -1130,6 +1303,27 @@
 
         // Core draw loop trigger on hand model output
         function onResults(results) {
+            // --- Process Microphone Reactivity ---
+            if (isMicEnabled && micAnalyser && micDataArray) {
+                micAnalyser.getByteFrequencyData(micDataArray);
+                
+                let sumVol = 0;
+                for (let i = 0; i < micDataArray.length; i++) {
+                    sumVol += micDataArray[i];
+                }
+                micVolumeValue = sumVol / (micDataArray.length * 255.0);
+                
+                let sumBass = 0;
+                const bassBins = Math.min(8, micDataArray.length);
+                for (let i = 0; i < bassBins; i++) {
+                    sumBass += micDataArray[i];
+                }
+                micBassValue = sumBass / (bassBins * 255.0);
+            } else {
+                micVolumeValue = 0;
+                micBassValue = 0;
+            }
+
             if (loadingOverlay.style.opacity !== '0') {
                 loadingOverlay.style.opacity = '0';
                 setTimeout(() => loadingOverlay.style.display = 'none', 500);
@@ -1214,20 +1408,21 @@
 
                     // Only draw skeleton/radar guides if showHelpers is active
                     if (showHelpers) {
-                        // Outer pulsing radar ring (gold glow)
+                        const theme = themes[activeTheme];
+                        // Outer pulsing radar ring (theme glow)
                         canvasCtx.save();
                         canvasCtx.beginPath();
                         canvasCtx.arc(pinchX, pinchY, activeRadius, 0, 2 * Math.PI);
-                        canvasCtx.strokeStyle = `rgba(201, 168, 124, ${depthNormalized})`;
+                        canvasCtx.strokeStyle = `${theme.particle}${depthNormalized})`;
                         canvasCtx.lineWidth = 1.2 + (depthPixelDist / 85);
-                        canvasCtx.shadowColor = 'rgba(201, 168, 124, 0.4)';
+                        canvasCtx.shadowColor = theme.primary;
                         canvasCtx.shadowBlur = 8;
                         canvasCtx.stroke();
                         
                         // Inner concentric radar ring
                         canvasCtx.beginPath();
                         canvasCtx.arc(pinchX, pinchY, activeRadius - 6, 0, 2 * Math.PI);
-                        canvasCtx.strokeStyle = `rgba(201, 168, 124, ${depthNormalized * 0.4})`;
+                        canvasCtx.strokeStyle = `${theme.particle}${depthNormalized * 0.4})`;
                         canvasCtx.lineWidth = 0.5;
                         canvasCtx.stroke();
                         canvasCtx.restore();
@@ -1385,8 +1580,8 @@
                 canvasCtx.lineTo(v2.x, v2.y);
                 canvasCtx.moveTo(v1.x, v1.y);
                 canvasCtx.lineTo(v3.x, v3.y);
-                canvasCtx.strokeStyle = '#c9a87c';
-                canvasCtx.lineWidth = 2.5;
+                canvasCtx.strokeStyle = themes[activeTheme].primary;
+                canvasCtx.lineWidth = 2.5 + micBassValue * 6.0; // Dynamic thickness on beat
                 canvasCtx.stroke();
 
                 // Base line is drawn as a real-time reactive audio visualizer!
@@ -1408,15 +1603,16 @@
                         const lx = v2.x + t * baseDx;
                         const ly = v2.y + t * baseDy;
                         const amp = (audioDataArray[i] - 128) / 128.0; 
-                        const displace = amp * 28.0; // max displacement in pixels
+                        // Base visualizer displacement expands with mic volume/bass input
+                        const displace = amp * (28.0 + micVolumeValue * 30.0); 
                         canvasCtx.lineTo(lx + perpX * displace, ly + perpY * displace);
                     }
                 } else {
                     canvasCtx.moveTo(v2.x, v2.y);
                     canvasCtx.lineTo(v3.x, v3.y);
                 }
-                canvasCtx.strokeStyle = '#c9a87c';
-                canvasCtx.lineWidth = 2.5;
+                canvasCtx.strokeStyle = themes[activeTheme].primary;
+                canvasCtx.lineWidth = 2.5 + micBassValue * 6.0; // Dynamic thickness on beat
                 canvasCtx.stroke();
 
                 // Draw thin dividers inside prism
@@ -1425,8 +1621,8 @@
                 canvasCtx.lineTo(b1.x, b1.y);
                 canvasCtx.moveTo(v1.x, v1.y);
                 canvasCtx.lineTo(b2.x, b2.y);
-                canvasCtx.strokeStyle = 'rgba(201, 168, 124, 0.4)';
-                canvasCtx.lineWidth = 1;
+                canvasCtx.strokeStyle = themes[activeTheme].glow;
+                canvasCtx.lineWidth = 1 + micBassValue * 2.0;
                 canvasCtx.stroke();
 
                 // --- Emitter Spark Particles (Along Base Line) ---
@@ -1436,21 +1632,28 @@
                 const dy = triangleCenterY - prevBoxCenterY;
                 const speed = Math.sqrt(dx * dx + dy * dy);
                 
-                let pColor = 'rgba(201, 168, 124, ';
-                if (presetIdx === 0) {
-                    pColor = Math.random() > 0.5 ? 'rgba(0, 100, 255, ' : 'rgba(255, 50, 50, ';
-                } else if (presetIdx === 1) {
-                    pColor = Math.random() > 0.5 ? 'rgba(0, 255, 255, ' : 'rgba(255, 99, 132, ';
-                } else if (presetIdx === 2) {
-                    pColor = 'rgba(0, 255, 50, ';
-                } else if (presetIdx === 3) {
-                    pColor = Math.random() > 0.5 ? 'rgba(255, 0, 128, ' : 'rgba(0, 255, 200, ';
+                let pColor = themes[activeTheme].particle;
+                if (activeTheme === 'gold') {
+                    if (presetIdx === 0) {
+                        pColor = Math.random() > 0.5 ? 'rgba(0, 100, 255, ' : 'rgba(255, 50, 50, ';
+                    } else if (presetIdx === 1) {
+                        pColor = Math.random() > 0.5 ? 'rgba(0, 255, 255, ' : 'rgba(255, 99, 132, ';
+                    } else if (presetIdx === 2) {
+                        pColor = 'rgba(0, 255, 50, ';
+                    } else if (presetIdx === 3) {
+                        pColor = Math.random() > 0.5 ? 'rgba(255, 0, 128, ' : 'rgba(0, 255, 200, ';
+                    }
+                } else if (activeTheme === 'cyber') {
+                    pColor = Math.random() > 0.5 ? 'rgba(255, 0, 127, ' : 'rgba(0, 255, 255, ';
+                } else if (activeTheme === 'sunset') {
+                    pColor = Math.random() > 0.5 ? 'rgba(255, 94, 98, ' : 'rgba(255, 153, 102, ';
                 }
 
-                if (speed > 2.0) {
-                    const oppX = -dx / speed;
-                    const oppY = -dy / speed;
-                    for (let k = 0; k < 3; k++) {
+                if (speed > 2.0 || micBassValue > 0.15) {
+                    const oppX = -dx / (speed || 1);
+                    const oppY = -dy / (speed || 1);
+                    const sparkSpawnCount = speed > 2.0 ? 3 : Math.floor(micBassValue * 5);
+                    for (let k = 0; k < sparkSpawnCount; k++) {
                         const t = Math.random();
                         const px = Math.round(v2.x + t * (v3.x - v2.x));
                         const py = Math.round(v2.y + t * (v3.y - v2.y));
@@ -1470,8 +1673,8 @@
                 if (streamDist > 20) {
                     const ndx = streamDirX / streamDist;
                     const ndy = streamDirY / streamDist;
-                    if (Math.random() < 0.75) {
-                        const flowSpeed = 2.0 + Math.random() * 4.0;
+                    if (Math.random() < 0.75 + micVolumeValue * 0.25) {
+                        const flowSpeed = (2.0 + Math.random() * 4.0) * (1.0 + micBassValue * 2.5);
                         const perpX = -ndy;
                         const perpY = ndx;
                         const spread = (Math.random() - 0.5) * 1.8; 
@@ -1585,6 +1788,25 @@
         // Initialize webcam
         startWebcam();
 
+        function takeSnapshot() {
+            const flash = document.getElementById('shutter-flash');
+            if (flash) {
+                flash.style.transition = 'none';
+                flash.style.opacity = '1';
+                setTimeout(() => {
+                    flash.style.transition = 'opacity 0.4s ease-out';
+                    flash.style.opacity = '0';
+                }, 50);
+            }
+
+            // Capture the canvas rendering as a download
+            const link = document.createElement('a');
+            link.download = `magic-window-${Date.now()}.png`;
+            link.href = canvasElement.toDataURL('image/png');
+            link.click();
+            console.log("Snapshot captured.");
+        }
+
         // --- Keyboard Controls ---
         window.addEventListener('keydown', (e) => {
             if (e.code === 'Space' || e.key === 'c' || e.key === 'C') {
@@ -1595,6 +1817,9 @@
                 e.preventDefault();
             } else if (e.key === 'm' || e.key === 'M') {
                 toggleAudio();
+                e.preventDefault();
+            } else if (e.key === 's' || e.key === 'S') {
+                takeSnapshot();
                 e.preventDefault();
             } else if (e.key === 'd' || e.key === 'D') {
                 toggleDashboardCollapse();
