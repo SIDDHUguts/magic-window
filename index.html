@@ -787,6 +787,34 @@
 
         // --- Filter Pipelines ---
         
+        // Helper to draw a line that vibrates dynamically to the synthesizer music throb
+        function drawWaveformLine(ctx, p1, p2) {
+            if (analyser && isAudioEnabled && audioDataArray) {
+                analyser.getByteTimeDomainData(audioDataArray);
+                const dx = p2.x - p1.x;
+                const dy = p2.y - p1.y;
+                const len = Math.sqrt(dx * dx + dy * dy);
+                const perpX = -dy / (len || 1);
+                const perpY = dx / (len || 1);
+                
+                ctx.moveTo(p1.x, p1.y);
+                const count = audioDataArray.length;
+                // Subsample to avoid excessive line segments (step by 4)
+                for (let i = 0; i < count; i += 4) {
+                    const t = i / (count - 1);
+                    const lx = p1.x + t * dx;
+                    const ly = p1.y + t * dy;
+                    const amp = (audioDataArray[i] - 128) / 128.0; 
+                    const displace = amp * (18.0 + micVolumeValue * 22.0); 
+                    ctx.lineTo(lx + perpX * displace, ly + perpY * displace);
+                }
+                ctx.lineTo(p2.x, p2.y);
+            } else {
+                ctx.moveTo(p1.x, p1.y);
+                ctx.lineTo(p2.x, p2.y);
+            }
+        }
+
         // Helper to draw image data respecting the current canvas clipping path
         function putImageDataClipped(ctx, imgData, x, y) {
             const tempCanvas = document.createElement('canvas');
@@ -1368,113 +1396,112 @@
             canvasCtx.scale(-1, 1);
             canvasCtx.drawImage(results.image, w - drawX - drawW, drawY, drawW, drawH);
             canvasCtx.restore();
-
-            const handsData = [];
+            
+            const activeFingers = [];
+            let totalHandDepth = 0;
+            let handCount = 0;
             let triggerTouchActive = false;
 
             if (results.multiHandLandmarks) {
-                for (let handIdx = 0; handIdx < results.multiHandLandmarks.length; handIdx++) {
+                handCount = results.multiHandLandmarks.length;
+                for (let handIdx = 0; handIdx < handCount; handIdx++) {
                     const landmarks = results.multiHandLandmarks[handIdx];
                     
                     const wrist = landmarks[0];
-                    const thumb = landmarks[4];
-                    const index = landmarks[8];
-                    const middleMcp = landmarks[9];
-                    const middle = landmarks[12];
-                    
-                    // Coordinates in pixels, mapped to cover bounds
+                    const thumbTip = landmarks[4];
+                    const thumbIp = landmarks[3];
+                    const indexTip = landmarks[8];
+                    const indexPip = landmarks[6];
+                    const middleTip = landmarks[12];
+                    const middlePip = landmarks[10];
+                    const ringTip = landmarks[16];
+                    const ringPip = landmarks[14];
+                    const pinkyTip = landmarks[20];
+                    const pinkyPip = landmarks[18];
+                    const mcp = landmarks[9];
+
+                    // Pixel mapping
                     const wristX = Math.round(drawX + (1 - wrist.x) * drawW);
                     const wristY = Math.round(drawY + wrist.y * drawH);
-                    const thumbX = Math.round(drawX + (1 - thumb.x) * drawW);
-                    const thumbY = Math.round(drawY + thumb.y * drawH);
-                    const indexX = Math.round(drawX + (1 - index.x) * drawW);
-                    const indexY = Math.round(drawY + index.y * drawH);
-                    const mcpX = Math.round(drawX + (1 - middleMcp.x) * drawW);
-                    const mcpY = Math.round(drawY + middleMcp.y * drawH);
-                    const middleX = Math.round(drawX + (1 - middle.x) * drawW);
-                    const middleY = Math.round(drawY + middle.y * drawH);
+                    const thumbX = Math.round(drawX + (1 - thumbTip.x) * drawW);
+                    const thumbY = Math.round(drawY + thumbTip.y * drawH);
+                    const indexX = Math.round(drawX + (1 - indexTip.x) * drawW);
+                    const indexY = Math.round(drawY + indexTip.y * drawH);
+                    const mcpX = Math.round(drawX + (1 - mcp.x) * drawW);
+                    const mcpY = Math.round(drawY + mcp.y * drawH);
+                    const middleX = Math.round(drawX + (1 - middleTip.x) * drawW);
+                    const middleY = Math.round(drawY + middleTip.y * drawH);
+                    const ringX = Math.round(drawX + (1 - ringTip.x) * drawW);
+                    const ringY = Math.round(drawY + ringTip.y * drawH);
+                    const pinkyX = Math.round(drawX + (1 - pinkyTip.x) * drawW);
+                    const pinkyY = Math.round(drawY + pinkyTip.y * drawH);
 
-                    // Midpoint Thumb + Index (Pinch point)
-                    const pinchX = Math.round((thumbX + indexX) / 2);
-                    const pinchY = Math.round((thumbY + indexY) / 2);
+                    // Proximity / Depth calculation
+                    const depthPixelDist = Math.sqrt(Math.pow(wristX - mcpX, 2) + Math.pow(wristY - mcpY, 2));
+                    totalHandDepth += depthPixelDist;
 
-                    // Distance thumb to index (checks pinch vs spread)
-                    const pinchDist = Math.sqrt(Math.pow(thumbX - indexX, 2) + Math.pow(thumbY - indexY, 2));
+                    // Gestures: check if fingers are extended (upright)
+                    // Index
+                    if (indexTip.y < indexPip.y) {
+                        activeFingers.push({ x: indexX, y: indexY });
+                    }
+                    // Middle
+                    if (middleTip.y < middlePip.y) {
+                        activeFingers.push({ x: middleX, y: middleY });
+                    }
+                    // Ring
+                    if (ringTip.y < ringPip.y) {
+                        activeFingers.push({ x: ringX, y: ringY });
+                    }
+                    // Pinky
+                    if (pinkyTip.y < pinkyPip.y) {
+                        activeFingers.push({ x: pinkyX, y: pinkyY });
+                    }
+                    // Thumb (check spread distance from index knuckle)
+                    const thumbSpread = Math.sqrt(Math.pow(thumbTip.x - indexPip.x, 2) + Math.pow(thumbTip.y - indexPip.y, 2));
+                    if (thumbSpread > 0.075) {
+                        activeFingers.push({ x: thumbX, y: thumbY });
+                    }
 
-                    // Index-Middle Touching gesture distance
-                    const touchDist = Math.sqrt(Math.pow(index.x - middle.x, 2) + Math.pow(index.y - middle.y, 2));
-                    const isTouching = touchDist < 0.038;
-
-                    if (isTouching) {
+                    // Index-Middle Touching gesture check to cycle presets
+                    const touchDist = Math.sqrt(Math.pow(indexTip.x - middleTip.x, 2) + Math.pow(indexTip.y - middleTip.y, 2));
+                    if (touchDist < 0.038 && indexTip.y < indexPip.y && middleTip.y < middlePip.y) {
                         triggerTouchActive = true;
                     }
 
-                    // --- Proximity / Z-Depth Radar ---
-                    const depthPixelDist = Math.sqrt(Math.pow(wristX - mcpX, 2) + Math.pow(wristY - mcpY, 2));
-                    const radarRadius = 16 + (depthPixelDist * 0.22);
-                    const pulse = 1.0 + Math.sin(Date.now() * 0.012) * 0.08;
-                    const activeRadius = radarRadius * pulse;
-                    const depthNormalized = Math.min(1.0, depthPixelDist / 120);
-
-                    // Only draw skeleton/radar guides if showHelpers is active
+                    // Optional Skeleton overlay drawing
                     if (showHelpers) {
                         const theme = themes[activeTheme];
-                        // Outer pulsing radar ring (theme glow)
+                        const radarRadius = 16 + (depthPixelDist * 0.22);
+                        const pulse = 1.0 + Math.sin(Date.now() * 0.012) * 0.08;
+                        const activeRadius = radarRadius * pulse;
+                        const depthNormalized = Math.min(1.0, depthPixelDist / 120);
+
+                        // Draw palm concentric radar
                         canvasCtx.save();
                         canvasCtx.beginPath();
-                        canvasCtx.arc(pinchX, pinchY, activeRadius, 0, 2 * Math.PI);
+                        canvasCtx.arc(mcpX, mcpY, activeRadius, 0, 2 * Math.PI);
                         canvasCtx.strokeStyle = `${theme.particle}${depthNormalized})`;
                         canvasCtx.lineWidth = 1.2 + (depthPixelDist / 85);
                         canvasCtx.shadowColor = theme.primary;
                         canvasCtx.shadowBlur = 8;
                         canvasCtx.stroke();
-                        
-                        // Inner concentric radar ring
-                        canvasCtx.beginPath();
-                        canvasCtx.arc(pinchX, pinchY, activeRadius - 6, 0, 2 * Math.PI);
-                        canvasCtx.strokeStyle = `${theme.particle}${depthNormalized * 0.4})`;
-                        canvasCtx.lineWidth = 0.5;
-                        canvasCtx.stroke();
                         canvasCtx.restore();
 
-                        // --- Visual Helper Guidelines ---
-                        // Draw Thumb-Index pinch line (Sky Blue)
+                        // Draw helper lines to active finger tips
                         canvasCtx.beginPath();
-                        canvasCtx.moveTo(thumbX, thumbY);
-                        canvasCtx.lineTo(indexX, indexY);
-                        canvasCtx.strokeStyle = 'rgba(0, 191, 255, 0.5)';
+                        canvasCtx.moveTo(wristX, wristY);
+                        canvasCtx.lineTo(mcpX, mcpY);
+                        canvasCtx.strokeStyle = 'rgba(0, 191, 255, 0.3)';
                         canvasCtx.lineWidth = 1;
                         canvasCtx.stroke();
 
-                        // Circles at joints
+                        // Dot at wrist
                         canvasCtx.beginPath();
-                        canvasCtx.arc(thumbX, thumbY, 4, 0, 2 * Math.PI);
-                        canvasCtx.arc(indexX, indexY, 4, 0, 2 * Math.PI);
-                        canvasCtx.fillStyle = 'rgb(0, 191, 255)';
-                        canvasCtx.fill();
-
-                        // Index-Middle connection line (Green if touching, Pink/Red if open)
-                        canvasCtx.beginPath();
-                        canvasCtx.moveTo(indexX, indexY);
-                        canvasCtx.lineTo(middleX, middleY);
-                        canvasCtx.strokeStyle = isTouching ? '#00ff00' : 'rgba(255, 99, 132, 0.5)';
-                        canvasCtx.lineWidth = isTouching ? 2.2 : 1;
-                        canvasCtx.stroke();
-
-                        canvasCtx.beginPath();
-                        canvasCtx.arc(middleX, middleY, 4, 0, 2 * Math.PI);
-                        canvasCtx.fillStyle = isTouching ? '#00ff00' : 'rgb(255, 99, 132)';
+                        canvasCtx.arc(wristX, wristY, 5, 0, 2 * Math.PI);
+                        canvasCtx.fillStyle = theme.primary;
                         canvasCtx.fill();
                     }
-
-                    // Record structured data for sorting roles
-                    handsData.push({
-                        pinch: { x: pinchX, y: pinchY },
-                        index: { x: indexX, y: indexY },
-                        thumb: { x: thumbX, y: thumbY },
-                        dist: pinchDist,
-                        depth: depthPixelDist
-                    });
                 }
             }
 
@@ -1482,223 +1509,204 @@
             const presetIdx = currentFilterIdx % prismPresets.length;
             const preset = prismPresets[presetIdx];
 
-            if (handsData.length === 2) {
-                // DUAL HAND MODE: Solve Vertex vs Base Triangle structure
-                handsData.sort((a, b) => a.dist - b.dist);
-                
-                const vertexHand = handsData[0];
-                const baseHand = handsData[1];
-                
-                const v1 = vertexHand.pinch; // Tip
-                const v2 = baseHand.index; // Base Top
-                const v3 = baseHand.thumb; // Base Bottom
-
-                // Calculate base partitions B1 (1/3 point) and B2 (2/3 point)
-                const b1 = {
-                    x: Math.round(v2.x + (v3.x - v2.x) / 3),
-                    y: Math.round(v2.y + (v3.y - v2.y) / 3)
-                };
-                const b2 = {
-                    x: Math.round(v2.x + 2 * (v3.x - v2.x) / 3),
-                    y: Math.round(v2.y + 2 * (v3.y - v2.y) / 3)
-                };
-
-                // Modulate audio parameters dynamically
-                if (audioCtx && isAudioEnabled && resonantFilter && oscillator && synthGainNode) {
-                    const freq = 85 + (1.0 - (v1.y / 480)) * 435; // height maps to frequency
-                    oscillator.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.05);
-                    
-                    const baseWidth = Math.sqrt(Math.pow(v2.x - v3.x, 2) + Math.pow(v2.y - v3.y, 2));
-                    const cutoff = 180 + Math.min(1.0, baseWidth / 250) * 2620; // width maps to filter cutoff
-                    resonantFilter.frequency.setTargetAtTime(cutoff, audioCtx.currentTime, 0.05);
-                    
-                    const avgDepth = (vertexHand.depth + baseHand.depth) / 2;
-                    const targetGain = 0.04 + Math.min(1.0, avgDepth / 130) * 0.11; // depth maps to loudness
-                    synthGainNode.gain.setTargetAtTime(targetGain, audioCtx.currentTime, 0.05);
-                }
-
-                // --- Render Band 1 (Top) ---
-                canvasCtx.save();
-                canvasCtx.beginPath();
-                canvasCtx.moveTo(v1.x, v1.y);
-                canvasCtx.lineTo(v2.x, v2.y);
-                canvasCtx.lineTo(b1.x, b1.y);
-                canvasCtx.closePath();
-                canvasCtx.clip();
-                
-                let xMin = Math.min(v1.x, v2.x, b1.x);
-                let yMin = Math.min(v1.y, v2.y, b1.y);
-                let xMax = Math.max(v1.x, v2.x, b1.x);
-                let yMax = Math.max(v1.y, v2.y, b1.y);
-                let wBand = xMax - xMin;
-                let hBand = yMax - yMin;
-                
-                if (wBand > 5 && hBand > 5) {
-                    const originalData = canvasCtx.getImageData(xMin, yMin, wBand, hBand);
-                    preset.top(canvasCtx, xMin, yMin, wBand, hBand, originalData);
-                }
-                canvasCtx.restore();
-
-                // --- Render Band 2 (Middle) ---
-                canvasCtx.save();
-                canvasCtx.beginPath();
-                canvasCtx.moveTo(v1.x, v1.y);
-                canvasCtx.lineTo(b1.x, b1.y);
-                canvasCtx.lineTo(b2.x, b2.y);
-                canvasCtx.closePath();
-                canvasCtx.clip();
-                
-                xMin = Math.min(v1.x, b1.x, b2.x);
-                yMin = Math.min(v1.y, b1.y, b2.y);
-                xMax = Math.max(v1.x, b1.x, b2.x);
-                yMax = Math.max(v1.y, b1.y, b2.y);
-                wBand = xMax - xMin;
-                hBand = yMax - yMin;
-                
-                if (wBand > 5 && hBand > 5) {
-                    const originalData = canvasCtx.getImageData(xMin, yMin, wBand, hBand);
-                    preset.mid(canvasCtx, xMin, yMin, wBand, hBand, originalData);
-                }
-                canvasCtx.restore();
-
-                // --- Render Band 3 (Bottom) ---
-                canvasCtx.save();
-                canvasCtx.beginPath();
-                canvasCtx.moveTo(v1.x, v1.y);
-                canvasCtx.lineTo(b2.x, b2.y);
-                canvasCtx.lineTo(v3.x, v3.y);
-                canvasCtx.closePath();
-                canvasCtx.clip();
-                
-                xMin = Math.min(v1.x, b2.x, v3.x);
-                yMin = Math.min(v1.y, b2.y, v3.y);
-                xMax = Math.max(v1.x, b2.x, v3.x);
-                yMax = Math.max(v1.y, b2.y, v3.y);
-                wBand = xMax - xMin;
-                hBand = yMax - yMin;
-                
-                if (wBand > 5 && hBand > 5) {
-                    const originalData = canvasCtx.getImageData(xMin, yMin, wBand, hBand);
-                    preset.bot(canvasCtx, xMin, yMin, wBand, hBand, originalData);
-                }
-                canvasCtx.restore();
-
-                // --- Draw Boundary Lines ---
-                // Side lines are drawn as straight borders
-                canvasCtx.beginPath();
-                canvasCtx.moveTo(v1.x, v1.y);
-                canvasCtx.lineTo(v2.x, v2.y);
-                canvasCtx.moveTo(v1.x, v1.y);
-                canvasCtx.lineTo(v3.x, v3.y);
-                canvasCtx.strokeStyle = themes[activeTheme].primary;
-                canvasCtx.lineWidth = 2.5 + micBassValue * 6.0; // Dynamic thickness on beat
-                canvasCtx.stroke();
-
-                // Base line is drawn as a real-time reactive audio visualizer!
-                canvasCtx.beginPath();
-                if (analyser && isAudioEnabled && audioDataArray) {
-                    analyser.getByteTimeDomainData(audioDataArray);
-                    
-                    const baseDx = v3.x - v2.x;
-                    const baseDy = v3.y - v2.y;
-                    const baseLen = Math.sqrt(baseDx * baseDx + baseDy * baseDy);
-                    const perpX = -baseDy / (baseLen || 1);
-                    const perpY = baseDx / (baseLen || 1);
-                    
-                    canvasCtx.moveTo(v2.x, v2.y);
-                    
-                    const count = audioDataArray.length;
-                    for (let i = 0; i < count; i++) {
-                        const t = i / (count - 1);
-                        const lx = v2.x + t * baseDx;
-                        const ly = v2.y + t * baseDy;
-                        const amp = (audioDataArray[i] - 128) / 128.0; 
-                        // Base visualizer displacement expands with mic volume/bass input
-                        const displace = amp * (28.0 + micVolumeValue * 30.0); 
-                        canvasCtx.lineTo(lx + perpX * displace, ly + perpY * displace);
+            if (activeFingers.length >= 3) {
+                // Remove duplicates if any fingers get mapped close to each other
+                const uniquePoints = [];
+                for (let i = 0; i < activeFingers.length; i++) {
+                    const p1 = activeFingers[i];
+                    let isDuplicate = false;
+                    for (let j = 0; j < uniquePoints.length; j++) {
+                        const p2 = uniquePoints[j];
+                        const dist = Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
+                        if (dist < 10) {
+                            isDuplicate = true;
+                            break;
+                        }
                     }
-                } else {
-                    canvasCtx.moveTo(v2.x, v2.y);
-                    canvasCtx.lineTo(v3.x, v3.y);
-                }
-                canvasCtx.strokeStyle = themes[activeTheme].primary;
-                canvasCtx.lineWidth = 2.5 + micBassValue * 6.0; // Dynamic thickness on beat
-                canvasCtx.stroke();
-
-                // Draw thin dividers inside prism
-                canvasCtx.beginPath();
-                canvasCtx.moveTo(v1.x, v1.y);
-                canvasCtx.lineTo(b1.x, b1.y);
-                canvasCtx.moveTo(v1.x, v1.y);
-                canvasCtx.lineTo(b2.x, b2.y);
-                canvasCtx.strokeStyle = themes[activeTheme].glow;
-                canvasCtx.lineWidth = 1 + micBassValue * 2.0;
-                canvasCtx.stroke();
-
-                // --- Emitter Spark Particles (Along Base Line) ---
-                const triangleCenterX = Math.round((v1.x + v2.x + v3.x) / 3);
-                const triangleCenterY = Math.round((v1.y + v2.y + v3.y) / 3);
-                const dx = triangleCenterX - prevBoxCenterX;
-                const dy = triangleCenterY - prevBoxCenterY;
-                const speed = Math.sqrt(dx * dx + dy * dy);
-                
-                let pColor = themes[activeTheme].particle;
-                if (activeTheme === 'gold') {
-                    if (presetIdx === 0) {
-                        pColor = Math.random() > 0.5 ? 'rgba(0, 100, 255, ' : 'rgba(255, 50, 50, ';
-                    } else if (presetIdx === 1) {
-                        pColor = Math.random() > 0.5 ? 'rgba(0, 255, 255, ' : 'rgba(255, 99, 132, ';
-                    } else if (presetIdx === 2) {
-                        pColor = 'rgba(0, 255, 50, ';
-                    } else if (presetIdx === 3) {
-                        pColor = Math.random() > 0.5 ? 'rgba(255, 0, 128, ' : 'rgba(0, 255, 200, ';
-                    }
-                } else if (activeTheme === 'cyber') {
-                    pColor = Math.random() > 0.5 ? 'rgba(255, 0, 127, ' : 'rgba(0, 255, 255, ';
-                } else if (activeTheme === 'sunset') {
-                    pColor = Math.random() > 0.5 ? 'rgba(255, 94, 98, ' : 'rgba(255, 153, 102, ';
-                }
-
-                if (speed > 2.0 || micBassValue > 0.15) {
-                    const oppX = -dx / (speed || 1);
-                    const oppY = -dy / (speed || 1);
-                    const sparkSpawnCount = speed > 2.0 ? 3 : Math.floor(micBassValue * 5);
-                    for (let k = 0; k < sparkSpawnCount; k++) {
-                        const t = Math.random();
-                        const px = Math.round(v2.x + t * (v3.x - v2.x));
-                        const py = Math.round(v2.y + t * (v3.y - v2.y));
-                        const vx = oppX * (0.8 + Math.random() * 1.5) + (Math.random() - 0.5) * 1.2;
-                        const vy = oppY * (0.8 + Math.random() * 1.5) + (Math.random() - 0.5) * 1.2;
-                        particles.push(new Particle(px, py, vx, vy, pColor));
+                    if (!isDuplicate) {
+                        uniquePoints.push(p1);
                     }
                 }
 
-                // --- Flowing particles from V1 towards center of base ---
-                const baseMidX = (v2.x + v3.x) / 2;
-                const baseMidY = (v2.y + v3.y) / 2;
-                const streamDirX = baseMidX - v1.x;
-                const streamDirY = baseMidY - v1.y;
-                const streamDist = Math.sqrt(streamDirX * streamDirX + streamDirY * streamDirY);
-                
-                if (streamDist > 20) {
-                    const ndx = streamDirX / streamDist;
-                    const ndy = streamDirY / streamDist;
-                    if (Math.random() < 0.75 + micVolumeValue * 0.25) {
-                        const flowSpeed = (2.0 + Math.random() * 4.0) * (1.0 + micBassValue * 2.5);
-                        const perpX = -ndy;
-                        const perpY = ndx;
-                        const spread = (Math.random() - 0.5) * 1.8; 
+                if (uniquePoints.length >= 3) {
+                    // 1. Solve Centroid
+                    let sumX = 0, sumY = 0;
+                    for (let i = 0; i < uniquePoints.length; i++) {
+                        sumX += uniquePoints[i].x;
+                        sumY += uniquePoints[i].y;
+                    }
+                    const cx = Math.round(sumX / uniquePoints.length);
+                    const cy = Math.round(sumY / uniquePoints.length);
+
+                    // 2. Sort points by polar angle around centroid to form a convex polygon
+                    uniquePoints.sort((a, b) => {
+                        const angleA = Math.atan2(a.y - cy, a.x - cx);
+                        const angleB = Math.atan2(b.y - cy, b.x - cx);
+                        return angleA - angleB;
+                    });
+
+                    const N = uniquePoints.length;
+
+                    // 3. Modulate synthesizer parameters dynamically
+                    if (audioCtx && isAudioEnabled && resonantFilter && oscillator && synthGainNode) {
+                        // Centroid height maps to pitch frequency
+                        const freq = 85 + (1.0 - (cy / h)) * 435; 
+                        oscillator.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.05);
                         
-                        const vx = ndx * flowSpeed + perpX * spread;
-                        const vy = ndy * flowSpeed + perpY * spread;
-                        particles.push(new Particle(v1.x, v1.y, vx, vy, pColor));
+                        // Calculate average radius of the polygon (maps to filter cutoff)
+                        let totalRadius = 0;
+                        for (let i = 0; i < N; i++) {
+                            totalRadius += Math.sqrt(Math.pow(uniquePoints[i].x - cx, 2) + Math.pow(uniquePoints[i].y - cy, 2));
+                        }
+                        const avgRadius = totalRadius / N;
+                        const cutoff = 180 + Math.min(1.0, avgRadius / 250) * 2620; 
+                        resonantFilter.frequency.setTargetAtTime(cutoff, audioCtx.currentTime, 0.05);
+                        
+                        // Average depth maps to volume
+                        const avgDepth = (handCount > 0) ? (totalHandDepth / handCount) : 80;
+                        const targetGain = 0.04 + Math.min(1.0, avgDepth / 130) * 0.11; 
+                        synthGainNode.gain.setTargetAtTime(targetGain, audioCtx.currentTime, 0.05);
                     }
-                }
 
-                prevBoxCenterX = triangleCenterX;
-                prevBoxCenterY = triangleCenterY;
+                    // 4. Render Polygon Sectors
+                    // Loop through each segment and draw a fanning sector from centroid
+                    for (let i = 0; i < N; i++) {
+                        const p1 = uniquePoints[i];
+                        const p2 = uniquePoints[(i + 1) % N];
+
+                        canvasCtx.save();
+                        canvasCtx.beginPath();
+                        canvasCtx.moveTo(cx, cy);
+                        canvasCtx.lineTo(p1.x, p1.y);
+                        canvasCtx.lineTo(p2.x, p2.y);
+                        canvasCtx.closePath();
+                        canvasCtx.clip();
+
+                        const xMin = Math.min(cx, p1.x, p2.x);
+                        const yMin = Math.min(cy, p1.y, p2.y);
+                        const xMax = Math.max(cx, p1.x, p2.x);
+                        const yMax = Math.max(cy, p1.y, p2.y);
+                        const wBand = xMax - xMin;
+                        const hBand = yMax - yMin;
+
+                        if (wBand > 5 && hBand > 5) {
+                            const originalData = canvasCtx.getImageData(xMin, yMin, wBand, hBand);
+                            
+                            // Select preset filter (alternate: Top, Mid, Bot)
+                            const sectorFilterIdx = i % 3;
+                            if (sectorFilterIdx === 0) {
+                                preset.top(canvasCtx, xMin, yMin, wBand, hBand, originalData);
+                            } else if (sectorFilterIdx === 1) {
+                                preset.mid(canvasCtx, xMin, yMin, wBand, hBand, originalData);
+                            } else {
+                                preset.bot(canvasCtx, xMin, yMin, wBand, hBand, originalData);
+                            }
+                        }
+                        canvasCtx.restore();
+                    }
+
+                    // 5. Draw Outer Boundary Visualizer Lines (React to music throb)
+                    canvasCtx.beginPath();
+                    for (let i = 0; i < N; i++) {
+                        drawWaveformLine(canvasCtx, uniquePoints[i], uniquePoints[(i + 1) % N]);
+                    }
+                    canvasCtx.strokeStyle = themes[activeTheme].primary;
+                    canvasCtx.lineWidth = 2.5 + micBassValue * 6.0; 
+                    canvasCtx.stroke();
+
+                    // 6. Draw Internal Dividers (Fanning from Center to each finger Tip)
+                    canvasCtx.beginPath();
+                    for (let i = 0; i < N; i++) {
+                        canvasCtx.moveTo(cx, cy);
+                        canvasCtx.lineTo(uniquePoints[i].x, uniquePoints[i].y);
+                    }
+                    canvasCtx.strokeStyle = themes[activeTheme].glow;
+                    canvasCtx.lineWidth = 1 + micBassValue * 2.0;
+                    canvasCtx.stroke();
+
+                    // Draw Glowing Dots at active finger tips (if guides are shown)
+                    if (showHelpers) {
+                        canvasCtx.save();
+                        for (let i = 0; i < N; i++) {
+                            canvasCtx.beginPath();
+                            canvasCtx.arc(uniquePoints[i].x, uniquePoints[i].y, 6, 0, 2 * Math.PI);
+                            canvasCtx.fillStyle = themes[activeTheme].primary;
+                            canvasCtx.shadowColor = themes[activeTheme].primary;
+                            canvasCtx.shadowBlur = 10;
+                            canvasCtx.fill();
+                        }
+                        canvasCtx.restore();
+                    }
+
+                    // 7. Emitter Spark Particles (Along Boundary Segments)
+                    // Speed calculated from centroid movement
+                    const dx = cx - prevBoxCenterX;
+                    const dy = cy - prevBoxCenterY;
+                    const speed = Math.sqrt(dx * dx + dy * dy);
+
+                    let pColor = themes[activeTheme].particle;
+                    if (activeTheme === 'gold') {
+                        if (presetIdx === 0) {
+                            pColor = Math.random() > 0.5 ? 'rgba(0, 100, 255, ' : 'rgba(255, 50, 50, ';
+                        } else if (presetIdx === 1) {
+                            pColor = Math.random() > 0.5 ? 'rgba(0, 255, 255, ' : 'rgba(255, 99, 132, ';
+                        } else if (presetIdx === 2) {
+                            pColor = 'rgba(0, 255, 50, ';
+                        } else if (presetIdx === 3) {
+                            pColor = Math.random() > 0.5 ? 'rgba(255, 0, 128, ' : 'rgba(0, 255, 200, ';
+                        }
+                    } else if (activeTheme === 'cyber') {
+                        pColor = Math.random() > 0.5 ? 'rgba(255, 0, 127, ' : 'rgba(0, 255, 255, ';
+                    } else if (activeTheme === 'sunset') {
+                        pColor = Math.random() > 0.5 ? 'rgba(255, 94, 98, ' : 'rgba(255, 153, 102, ';
+                    }
+
+                    if (speed > 2.0 || micBassValue > 0.15) {
+                        const oppX = -dx / (speed || 1);
+                        const oppY = -dy / (speed || 1);
+                        const sparkSpawnCount = speed > 2.0 ? 3 : Math.floor(micBassValue * 5);
+                        for (let k = 0; k < sparkSpawnCount; k++) {
+                            // Pick a random boundary segment to emit sparks from
+                            const segIdx = Math.floor(Math.random() * N);
+                            const pA = uniquePoints[segIdx];
+                            const pB = uniquePoints[(segIdx + 1) % N];
+                            
+                            const t = Math.random();
+                            const px = Math.round(pA.x + t * (pB.x - pA.x));
+                            const py = Math.round(pA.y + t * (pB.y - pA.y));
+                            const vx = oppX * (0.8 + Math.random() * 1.5) + (Math.random() - 0.5) * 1.2;
+                            const vy = oppY * (0.8 + Math.random() * 1.5) + (Math.random() - 0.5) * 1.2;
+                            particles.push(new Particle(px, py, vx, vy, pColor));
+                        }
+                    }
+
+                    // 8. Flowing Outward Particle Stream (Flows along divider lines from centroid out to vertices)
+                    for (let i = 0; i < N; i++) {
+                        const vertex = uniquePoints[i];
+                        const streamDirX = vertex.x - cx;
+                        const streamDirY = vertex.y - cy;
+                        const streamDist = Math.sqrt(streamDirX * streamDirX + streamDirY * streamDirY);
+                        
+                        if (streamDist > 20) {
+                            const ndx = streamDirX / streamDist;
+                            const ndy = streamDirY / streamDist;
+                            if (Math.random() < 0.35 + micVolumeValue * 0.15) {
+                                const flowSpeed = (2.0 + Math.random() * 4.0) * (1.0 + micBassValue * 2.5);
+                                const perpX = -ndy;
+                                const perpY = ndx;
+                                const spread = (Math.random() - 0.5) * 1.8; 
+                                
+                                const vx = ndx * flowSpeed + perpX * spread;
+                                const vy = ndy * flowSpeed + perpY * spread;
+                                particles.push(new Particle(cx, cy, vx, vy, pColor));
+                            }
+                        }
+                    }
+
+                    prevBoxCenterX = cx;
+                    prevBoxCenterY = cy;
+                }
             } else {
-                // Ramp down sound if not 2 hands
                 if (synthGainNode) {
                     synthGainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
                 }
