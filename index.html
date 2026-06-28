@@ -787,6 +787,16 @@
 
         // --- Filter Pipelines ---
         
+        // Helper to draw image data respecting the current canvas clipping path
+        function putImageDataClipped(ctx, imgData, x, y) {
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = imgData.width;
+            tempCanvas.height = imgData.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.putImageData(imgData, 0, 0);
+            ctx.drawImage(tempCanvas, x, y);
+        }
+
         function applyInvert(ctx, x, y, w, h) {
             const imgData = ctx.getImageData(x, y, w, h);
             const data = imgData.data;
@@ -795,7 +805,7 @@
                 data[i+1] = 255 - data[i+1];   // G
                 data[i+2] = 255 - data[i+2];   // B
             }
-            ctx.putImageData(imgData, x, y);
+            putImageDataClipped(ctx, imgData, x, y);
         }
 
         function applyEmboss(ctx, x, y, w, h) {
@@ -844,7 +854,7 @@
                     data[idx+2] = output[idx+2];
                 }
             }
-            ctx.putImageData(imgData, x, y);
+            putImageDataClipped(ctx, imgData, x, y);
         }
 
         function applyAscii(ctx, x, y, w, h, originalImgData) {
@@ -930,7 +940,7 @@
                 data[i+1] = g;
                 data[i+2] = b;
             }
-            ctx.putImageData(imgData, x, y);
+            putImageDataClipped(ctx, imgData, x, y);
         }
 
         function applyNeonEdge(ctx, x, y, w, h) {
@@ -984,7 +994,7 @@
                     data[idx+2] = output[idx+2];
                 }
             }
-            ctx.putImageData(imgData, x, y);
+            putImageDataClipped(ctx, imgData, x, y);
         }
 
         // --- New Shaders ---
@@ -1061,7 +1071,7 @@
             for (let i = 0; i < data.length; i++) {
                 data[i] = output[i];
             }
-            ctx.putImageData(imgData, x, y);
+            putImageDataClipped(ctx, imgData, x, y);
         }
 
         function applyNeonSpectrum(ctx, x, y, w, h) {
@@ -1114,7 +1124,7 @@
                     data[idx+2] = output[idx+2];
                 }
             }
-            ctx.putImageData(imgData, x, y);
+            putImageDataClipped(ctx, imgData, x, y);
         }
 
         function applyPixelate(ctx, x, y, w, h) {
@@ -1150,7 +1160,7 @@
                     }
                 }
             }
-            ctx.putImageData(imgData, x, y);
+            putImageDataClipped(ctx, imgData, x, y);
         }
 
         // Halftone dots printer
