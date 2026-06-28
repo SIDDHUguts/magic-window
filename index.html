@@ -1619,41 +1619,57 @@
                         synthGainNode.gain.setTargetAtTime(targetGain, audioCtx.currentTime, 0.05);
                     }
 
-                    // 4. Render Polygon Sectors
-                    // Loop through each segment and draw a fanning sector from centroid
-                    for (let i = 0; i < N; i++) {
-                        const p1 = shapeVertices[i];
-                        const p2 = shapeVertices[(i + 1) % N];
+                    // 4. Render Polygon Sectors (Single Readback Optimization)
+                    if (polyW > 5 && polyH > 5) {
+                        // Create 3 temporary offscreen canvases to pre-apply filters
+                        const canvasTop = document.createElement('canvas');
+                        canvasTop.width = polyW;
+                        canvasTop.height = polyH;
+                        const ctxTop = canvasTop.getContext('2d');
+                        ctxTop.drawImage(canvasElement, minX, minY, polyW, polyH, 0, 0, polyW, polyH);
 
-                        canvasCtx.save();
-                        canvasCtx.beginPath();
-                        canvasCtx.moveTo(cx, cy);
-                        canvasCtx.lineTo(p1.x, p1.y);
-                        canvasCtx.lineTo(p2.x, p2.y);
-                        canvasCtx.closePath();
-                        canvasCtx.clip();
+                        const canvasMid = document.createElement('canvas');
+                        canvasMid.width = polyW;
+                        canvasMid.height = polyH;
+                        const ctxMid = canvasMid.getContext('2d');
+                        ctxMid.drawImage(canvasElement, minX, minY, polyW, polyH, 0, 0, polyW, polyH);
 
-                        const xMin = Math.min(cx, p1.x, p2.x);
-                        const yMin = Math.min(cy, p1.y, p2.y);
-                        const xMax = Math.max(cx, p1.x, p2.x);
-                        const yMax = Math.max(cy, p1.y, p2.y);
-                        const wBand = xMax - xMin;
-                        const hBand = yMax - yMin;
+                        const canvasBot = document.createElement('canvas');
+                        canvasBot.width = polyW;
+                        canvasBot.height = polyH;
+                        const ctxBot = canvasBot.getContext('2d');
+                        ctxBot.drawImage(canvasElement, minX, minY, polyW, polyH, 0, 0, polyW, polyH);
 
-                        if (wBand > 5 && hBand > 5) {
-                            const originalData = canvasCtx.getImageData(xMin, yMin, wBand, hBand);
-                            
-                            // Select preset filter (alternate: Top, Mid, Bot)
+                        // Capture clean pixels once from top canvas to pass to shaders (ASCII, halftone, etc.)
+                        const origData = ctxTop.getImageData(0, 0, polyW, polyH);
+
+                        // Apply preset filters once to the offscreen canvases
+                        preset.top(ctxTop, 0, 0, polyW, polyH, origData);
+                        preset.mid(ctxMid, 0, 0, polyW, polyH, origData);
+                        preset.bot(ctxBot, 0, 0, polyW, polyH, origData);
+
+                        // Draw fanning sectors onto the main screen canvas using the pre-applied offscreen buffers
+                        for (let i = 0; i < N; i++) {
+                            const p1 = shapeVertices[i];
+                            const p2 = shapeVertices[(i + 1) % N];
+
+                            canvasCtx.save();
+                            canvasCtx.beginPath();
+                            canvasCtx.moveTo(cx, cy);
+                            canvasCtx.lineTo(p1.x, p1.y);
+                            canvasCtx.lineTo(p2.x, p2.y);
+                            canvasCtx.closePath();
+                            canvasCtx.clip();
+
                             const sectorFilterIdx = i % 3;
-                            if (sectorFilterIdx === 0) {
-                                preset.top(canvasCtx, xMin, yMin, wBand, hBand, originalData);
-                            } else if (sectorFilterIdx === 1) {
-                                preset.mid(canvasCtx, xMin, yMin, wBand, hBand, originalData);
-                            } else {
-                                preset.bot(canvasCtx, xMin, yMin, wBand, hBand, originalData);
-                            }
+                            let srcCanvas;
+                            if (sectorFilterIdx === 0) srcCanvas = canvasTop;
+                            else if (sectorFilterIdx === 1) srcCanvas = canvasMid;
+                            else srcCanvas = canvasBot;
+
+                            canvasCtx.drawImage(srcCanvas, 0, 0, polyW, polyH, minX, minY, polyW, polyH);
+                            canvasCtx.restore();
                         }
-                        canvasCtx.restore();
                     }
 
                     // 5. Draw Outer Boundary Visualizer Lines (React to music throb)
