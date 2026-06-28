@@ -1538,7 +1538,7 @@
                     const cx = Math.round(sumX / uniquePoints.length);
                     const cy = Math.round(sumY / uniquePoints.length);
 
-                    // 2. Sort points by polar angle around centroid to form a convex polygon
+                    // 2. Sort source finger points clock-wise to calculate orientation
                     uniquePoints.sort((a, b) => {
                         const angleA = Math.atan2(a.y - cy, a.x - cx);
                         const angleB = Math.atan2(b.y - cy, b.x - cx);
@@ -1546,6 +1546,57 @@
                     });
 
                     const N = uniquePoints.length;
+                    const shapeVertices = [];
+
+                    // Calculate bounding box width and height spans of the tracked fingers
+                    let minX = 9999, maxX = -9999, minY = 9999, maxY = -9999;
+                    for (let i = 0; i < N; i++) {
+                        if (uniquePoints[i].x < minX) minX = uniquePoints[i].x;
+                        if (uniquePoints[i].x > maxX) maxX = uniquePoints[i].x;
+                        if (uniquePoints[i].y < minY) minY = uniquePoints[i].y;
+                        if (uniquePoints[i].y > maxY) maxY = uniquePoints[i].y;
+                    }
+                    const spanW = maxX - minX;
+                    const spanH = maxY - minY;
+                    const R = Math.max(30, Math.sqrt(spanW * spanW + spanH * spanH) / 2);
+
+                    // Orientation angle of the shape mapped to the first finger vector
+                    const theta = Math.atan2(uniquePoints[0].y - cy, uniquePoints[0].x - cx);
+
+                    if (N === 4) {
+                        // Draw a perfect Rectangle/Square based on vertical/horizontal hand span
+                        const wRect = Math.max(30, spanW / 2);
+                        const hRect = Math.max(30, spanH / 2);
+                        
+                        const corners = [
+                            { x: -wRect, y: -hRect },
+                            { x: wRect, y: -hRect },
+                            { x: wRect, y: hRect },
+                            { x: -wRect, y: hRect }
+                        ];
+                        
+                        const cosT = Math.cos(theta);
+                        const sinT = Math.sin(theta);
+                        
+                        for (let i = 0; i < 4; i++) {
+                            const rx = corners[i].x * cosT - corners[i].y * sinT;
+                            const ry = corners[i].x * sinT + corners[i].y * cosT;
+                            shapeVertices.push({
+                                x: Math.round(cx + rx),
+                                y: Math.round(cy + ry)
+                            });
+                        }
+                    } else {
+                        // Draw perfect regular polygons for other finger counts (Triangle, Pentagon, Hexagon)
+                        const angleStep = (2 * Math.PI) / N;
+                        for (let i = 0; i < N; i++) {
+                            const a = theta + i * angleStep;
+                            shapeVertices.push({
+                                x: Math.round(cx + R * Math.cos(a)),
+                                y: Math.round(cy + R * Math.sin(a))
+                            });
+                        }
+                    }
 
                     // 3. Modulate synthesizer parameters dynamically
                     if (audioCtx && isAudioEnabled && resonantFilter && oscillator && synthGainNode) {
@@ -1556,7 +1607,7 @@
                         // Calculate average radius of the polygon (maps to filter cutoff)
                         let totalRadius = 0;
                         for (let i = 0; i < N; i++) {
-                            totalRadius += Math.sqrt(Math.pow(uniquePoints[i].x - cx, 2) + Math.pow(uniquePoints[i].y - cy, 2));
+                            totalRadius += Math.sqrt(Math.pow(shapeVertices[i].x - cx, 2) + Math.pow(shapeVertices[i].y - cy, 2));
                         }
                         const avgRadius = totalRadius / N;
                         const cutoff = 180 + Math.min(1.0, avgRadius / 250) * 2620; 
@@ -1571,8 +1622,8 @@
                     // 4. Render Polygon Sectors
                     // Loop through each segment and draw a fanning sector from centroid
                     for (let i = 0; i < N; i++) {
-                        const p1 = uniquePoints[i];
-                        const p2 = uniquePoints[(i + 1) % N];
+                        const p1 = shapeVertices[i];
+                        const p2 = shapeVertices[(i + 1) % N];
 
                         canvasCtx.save();
                         canvasCtx.beginPath();
@@ -1608,7 +1659,7 @@
                     // 5. Draw Outer Boundary Visualizer Lines (React to music throb)
                     canvasCtx.beginPath();
                     for (let i = 0; i < N; i++) {
-                        drawWaveformLine(canvasCtx, uniquePoints[i], uniquePoints[(i + 1) % N]);
+                        drawWaveformLine(canvasCtx, shapeVertices[i], shapeVertices[(i + 1) % N]);
                     }
                     canvasCtx.strokeStyle = themes[activeTheme].primary;
                     canvasCtx.lineWidth = 2.5 + micBassValue * 6.0; 
@@ -1618,7 +1669,7 @@
                     canvasCtx.beginPath();
                     for (let i = 0; i < N; i++) {
                         canvasCtx.moveTo(cx, cy);
-                        canvasCtx.lineTo(uniquePoints[i].x, uniquePoints[i].y);
+                        canvasCtx.lineTo(shapeVertices[i].x, shapeVertices[i].y);
                     }
                     canvasCtx.strokeStyle = themes[activeTheme].glow;
                     canvasCtx.lineWidth = 1 + micBassValue * 2.0;
@@ -1629,7 +1680,7 @@
                         canvasCtx.save();
                         for (let i = 0; i < N; i++) {
                             canvasCtx.beginPath();
-                            canvasCtx.arc(uniquePoints[i].x, uniquePoints[i].y, 6, 0, 2 * Math.PI);
+                            canvasCtx.arc(shapeVertices[i].x, shapeVertices[i].y, 6, 0, 2 * Math.PI);
                             canvasCtx.fillStyle = themes[activeTheme].primary;
                             canvasCtx.shadowColor = themes[activeTheme].primary;
                             canvasCtx.shadowBlur = 10;
@@ -1668,8 +1719,8 @@
                         for (let k = 0; k < sparkSpawnCount; k++) {
                             // Pick a random boundary segment to emit sparks from
                             const segIdx = Math.floor(Math.random() * N);
-                            const pA = uniquePoints[segIdx];
-                            const pB = uniquePoints[(segIdx + 1) % N];
+                            const pA = shapeVertices[segIdx];
+                            const pB = shapeVertices[(segIdx + 1) % N];
                             
                             const t = Math.random();
                             const px = Math.round(pA.x + t * (pB.x - pA.x));
@@ -1682,7 +1733,7 @@
 
                     // 8. Flowing Outward Particle Stream (Flows along divider lines from centroid out to vertices)
                     for (let i = 0; i < N; i++) {
-                        const vertex = uniquePoints[i];
+                        const vertex = shapeVertices[i];
                         const streamDirX = vertex.x - cx;
                         const streamDirY = vertex.y - cy;
                         const streamDist = Math.sqrt(streamDirX * streamDirX + streamDirY * streamDirY);
