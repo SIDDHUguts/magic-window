@@ -1410,6 +1410,7 @@
             let totalHandDepth = 0;
             let handCount = 0;
             let triggerTouchActive = false;
+            let maxPinch = 0;
 
             if (results.multiHandLandmarks) {
                 handCount = results.multiHandLandmarks.length;
@@ -1449,22 +1450,27 @@
                     const depthPixelDist = Math.sqrt(Math.pow(wristX - mcpX, 2) + Math.pow(wristY - mcpY, 2));
                     totalHandDepth += depthPixelDist;
 
-                    // Gestures: check if fingers are extended (using wrist-distance ratio for 3D orientation invariance)
+                    // Calculate local pinch distance
+                    const pinchD = Math.sqrt(Math.pow(thumbX - indexX, 2) + Math.pow(thumbY - indexY, 2));
+                    if (pinchD > maxPinch) maxPinch = pinchD;
+
+                    // Gestures: Thumb and Index are ALWAYS active (enables robust pinch-to-size without disappearing)
+                    activeFingers.push({ x: indexX, y: indexY });
+                    activeFingers.push({ x: thumbX, y: thumbY });
+
+                    // check if other fingers are extended (using wrist-distance ratio for 2D orientation invariance)
                     const isExtended = (tipIdx, mcpIdx) => {
                         const tip = landmarks[tipIdx];
                         const mcp = landmarks[mcpIdx];
-                        const dTip = Math.sqrt(Math.pow(tip.x - wrist.x, 2) + Math.pow(tip.y - wrist.y, 2) + Math.pow(tip.z - wrist.z, 2));
-                        const dMcp = Math.sqrt(Math.pow(mcp.x - wrist.x, 2) + Math.pow(mcp.y - wrist.y, 2) + Math.pow(mcp.z - wrist.z, 2));
-                        return dTip > dMcp * 1.25; 
+                        const dTip = Math.sqrt(Math.pow(tip.x - wrist.x, 2) + Math.pow(tip.y - wrist.y, 2));
+                        const dMcp = Math.sqrt(Math.pow(mcp.x - wrist.x, 2) + Math.pow(mcp.y - wrist.y, 2));
+                        return dTip > dMcp * 1.15; // 1.15 threshold is very safe and responsive
                     };
 
-                    // Index
                     const indexUp = isExtended(8, 5);
-                    if (indexUp) {
-                        activeFingers.push({ x: indexX, y: indexY });
-                    }
-                    // Middle
                     const middleUp = isExtended(12, 9);
+                    
+                    // Middle
                     if (middleUp) {
                         activeFingers.push({ x: middleX, y: middleY });
                     }
@@ -1475,11 +1481,6 @@
                     // Pinky
                     if (isExtended(20, 17)) {
                         activeFingers.push({ x: pinkyX, y: pinkyY });
-                    }
-                    // Thumb (check spread distance from index knuckle)
-                    const thumbSpread = Math.sqrt(Math.pow(thumbTip.x - indexPip.x, 2) + Math.pow(thumbTip.y - indexPip.y, 2));
-                    if (thumbSpread > 0.075) {
-                        activeFingers.push({ x: thumbX, y: thumbY });
                     }
 
                     // Index-Middle Touching gesture check to cycle presets
@@ -1579,7 +1580,21 @@
                     const spanH = maxY - minY;
                     const polyW = spanW;
                     const polyH = spanH;
-                    const R = Math.max(30, Math.sqrt(spanW * spanW + spanH * spanH) / 2);
+
+                    // If 2 hands are present, also include hand-to-hand distance in the scale
+                    let handToHandDist = 0;
+                    if (results.multiHandLandmarks && results.multiHandLandmarks.length === 2) {
+                        const h1 = results.multiHandLandmarks[0][9]; // Middle MCP of hand 1
+                        const h2 = results.multiHandLandmarks[1][9]; // Middle MCP of hand 2
+                        const h1X = Math.round(drawX + (1 - h1.x) * drawW);
+                        const h1Y = Math.round(drawY + h1.y * drawH);
+                        const h2X = Math.round(drawX + (1 - h2.x) * drawW);
+                        const h2Y = Math.round(drawY + h2.y * drawH);
+                        handToHandDist = Math.sqrt(Math.pow(h1X - h2X, 2) + Math.pow(h1Y - h2Y, 2));
+                    }
+
+                    // Shape size R is dynamically driven by pinch distance and hand-to-hand distance!
+                    const R = Math.max(35, Math.max(maxPinch * 1.8, handToHandDist * 0.55));
 
                     // Orientation angle of the shape mapped to the first finger vector
                     const theta = Math.atan2(uniquePoints[0].y - cy, uniquePoints[0].x - cx);
