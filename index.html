@@ -53,42 +53,151 @@
         .glow-top { top: -10%; left: 20%; }
         .glow-bottom { bottom: -10%; right: 20%; }
 
-        /* Canvas styling - Full Viewport */
-        .canvas-container {
-            position: absolute;
-            inset: 0;
+        /* Main Centered App Layout Container */
+        .app-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
             width: 100vw;
             height: 100vh;
-            z-index: 1;
             overflow: hidden;
+            position: relative;
+            z-index: 5;
+            padding: 20px;
+        }
+
+        .app-layout {
+            display: flex;
+            flex-direction: row;
+            align-items: stretch;
+            justify-content: center;
+            gap: 24px;
+            width: 100%;
+            max-width: 1000px;
+            height: auto;
+            max-height: 95vh;
+        }
+
+        /* Camera Feed Card Container */
+        .camera-card {
+            background: rgba(10, 10, 15, 0.65);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
+            border: 1px solid var(--border-glass);
+            border-radius: 20px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            box-shadow: 0 30px 60px rgba(0, 0, 0, 0.6);
+            flex-grow: 1;
+            width: 100%;
+            max-width: 600px;
+            transition: all 0.3s ease;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding-bottom: 12px;
+        }
+
+        .card-title {
+            font-size: 0.8rem;
+            font-weight: 800;
+            letter-spacing: 1.5px;
+            color: #fff;
+            display: flex;
+            align-items: center;
+        }
+
+        .live-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #00ff88;
+            border-radius: 50%;
+            margin-right: 8px;
+            box-shadow: 0 0 10px #00ff88;
+        }
+        .live-dot.pulsing {
+            animation: pulse-dot 1.5s infinite;
+        }
+        @keyframes pulse-dot {
+            0% { opacity: 0.4; }
+            50% { opacity: 1; }
+            100% { opacity: 0.4; }
+        }
+
+        .theme-badge {
+            font-size: 0.62rem;
+            font-weight: 800;
+            letter-spacing: 1px;
+            background: rgba(201, 168, 124, 0.12);
+            border: 1px solid var(--accent);
+            color: var(--accent);
+            padding: 3px 10px;
+            border-radius: 20px;
+            text-transform: uppercase;
+        }
+
+        .canvas-wrapper {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 4/3;
             background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.05);
         }
 
         #output_canvas {
-            display: block;
             width: 100%;
             height: 100%;
+            display: block;
             cursor: pointer;
         }
 
-        /* Glassmorphic Controls Dashboard - Floating Panel */
+        .card-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            padding-top: 12px;
+        }
+
+        .stat-badge {
+            font-size: 0.7rem;
+            font-weight: 700;
+            color: var(--text-secondary);
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            padding: 4px 12px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        /* Glassmorphic Controls Dashboard */
         .dashboard-panel {
-            position: absolute;
-            right: 25px;
-            top: 25px;
-            bottom: 25px;
             width: 320px;
             background: rgba(10, 10, 15, 0.65);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
             border: 1px solid var(--border-glass);
-            border-radius: 16px;
+            border-radius: 20px;
             padding: 22px;
             display: flex;
             flex-direction: column;
             gap: 20px;
-            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+            box-shadow: 0 30px 60px rgba(0, 0, 0, 0.6);
             z-index: 10;
+            flex-shrink: 0;
+            max-height: 100%;
+            overflow-y: auto;
         }
 
         .hud-header-container h2 {
@@ -299,37 +408,37 @@
         }
 
         .floating-hud-trigger {
-            position: absolute;
+            position: fixed;
             right: 25px;
-            top: 25px;
+            bottom: 25px;
             z-index: 100;
-            padding: 10px 18px;
-            background: rgba(10, 10, 15, 0.75);
-            border: 1px solid var(--border-glass);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border-radius: 8px;
-            color: var(--text-primary);
+            padding: 10px 20px;
+            background: rgba(10, 10, 15, 0.85);
+            border: 1px solid var(--accent);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            border-radius: 30px;
+            color: #fff;
             cursor: pointer;
             font-family: 'Outfit', sans-serif;
             font-size: 0.85rem;
             font-weight: 600;
-            transition: all 0.25s ease;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+            transition: all 0.2s ease;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5), 0 0 15px var(--accent-glow);
             outline: none;
         }
 
         .floating-hud-trigger:hover {
-            background: rgba(201, 168, 124, 0.15);
-            border-color: var(--accent);
-            transform: translateY(-1px);
+            transform: translateY(-2px);
+            background: var(--accent);
+            color: #000;
         }
 
         /* Loading Overlay */
         #loading-overlay {
             position: absolute;
             inset: 0;
-            background: var(--bg-primary);
+            background: rgba(10, 10, 15, 0.95);
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -370,15 +479,38 @@
             pointer-events: none;
         }
 
-        @media (max-width: 768px) {
-            .dashboard-panel {
-                left: 20px;
-                right: 20px;
-                top: auto;
-                bottom: 20px;
+        @media (max-width: 900px) {
+            .app-container {
                 height: auto;
-                max-height: 50%;
+                min-height: 100vh;
                 overflow-y: auto;
+                padding: 20px 10px;
+                display: block;
+            }
+            .app-layout {
+                flex-direction: column;
+                align-items: center;
+                gap: 20px;
+                padding: 0;
+                width: 100%;
+                max-height: none;
+            }
+            .camera-card {
+                max-width: 100%;
+                border-radius: 16px;
+                padding: 14px;
+            }
+            .dashboard-panel {
+                width: 100%;
+                max-width: 100%;
+                border-radius: 16px;
+                padding: 16px;
+                max-height: none;
+                overflow-y: visible;
+            }
+            body {
+                overflow-y: auto;
+                height: auto;
             }
         }
     </style>
@@ -388,109 +520,125 @@
     <div class="ambient-glow glow-top"></div>
     <div class="ambient-glow glow-bottom"></div>
 
-    <div class="canvas-container">
-        <!-- Loading Panel -->
-        <div id="loading-overlay">
-            <div class="spinner"></div>
-            <div id="loading-text">INITIALIZING CAMERA & MODELS...</div>
-        </div>
-        
-        <canvas id="output_canvas"></canvas>
-    </div>
-
-    <!-- Glassmorphic HUD Dashboard -->
-    <div class="dashboard-panel" id="hud-dashboard">
-        <div class="hud-header-container">
-            <h2>SAmaniacLabs</h2>
-            <p>Magic Window Filter</p>
-        </div>
-
-        <div class="hud-section">
-            <h3>SYSTEM DIAGNOSTICS</h3>
-            <div class="hud-stats">
-                <div class="stat-row">
-                    <span>FPS:</span>
-                    <span id="fps-val" style="color: #00ff88; font-weight: bold;">60.0</span>
+    <div class="app-container">
+        <div class="app-layout">
+            
+            <!-- 1. Magic Window Camera Card -->
+            <div class="camera-card" id="cam-card">
+                <div class="card-header">
+                    <div class="header-left">
+                        <span class="live-dot pulsing"></span>
+                        <span class="card-title">🔮 MAGIC WINDOW LIVE</span>
+                    </div>
+                    <div class="header-right">
+                        <span id="active-theme-badge" class="theme-badge">GOLD DUST THEME</span>
+                    </div>
                 </div>
-                <div class="stat-row">
-                    <span>Hands Tracked:</span>
-                    <span id="hands-val" style="color: #ff3333;">0 / 2</span>
+                
+                <div class="canvas-wrapper">
+                    <!-- Loading Panel -->
+                    <div id="loading-overlay">
+                        <div class="spinner"></div>
+                        <div id="loading-text">INITIALIZING CAMERA & MODELS...</div>
+                    </div>
+                    
+                    <canvas id="output_canvas" width="640" height="480"></canvas>
                 </div>
-                <div class="stat-row text-truncate">
-                    <span>Active Preset:</span>
-                    <span id="preset-val" class="accent-text">Spectrum Halftone</span>
+                
+                <div class="card-footer">
+                    <div class="stat-badge">⚡ <span id="fps-val">60.0</span> FPS</div>
+                    <div class="stat-badge">🖐️ <span id="hands-val">0 / 2</span> HANDS</div>
                 </div>
             </div>
-        </div>
 
-        <div class="hud-section">
-            <h3>INTERACTIVE CONTROLS</h3>
-            <div class="toggle-buttons">
-                <button id="toggle-audio" class="hud-btn muted" onclick="toggleAudio()">
-                    <span class="icon">🔇</span> Sound: MUTED
-                </button>
-                <button id="toggle-mic" class="hud-btn off" onclick="toggleMic()">
-                    <span class="icon">🎤</span> Mic Beat: OFF
-                </button>
-                <button id="btn-snapshot" class="hud-btn" onclick="takeSnapshot()">
-                    <span class="icon">📸</span> Take Snapshot
-                </button>
-                <button id="toggle-helpers" class="hud-btn off" onclick="toggleHelpers()">
-                    <span class="icon">👁️‍🗨️</span> Guides: HIDDEN
-                </button>
-                <button id="toggle-dashboard" class="hud-btn" onclick="toggleDashboardCollapse()">
-                    <span class="icon">🎛️</span> Hide Controls
-                </button>
-            </div>
-        </div>
+            <!-- 2. Controls Dashboard Panel -->
+            <div class="dashboard-panel" id="hud-dashboard">
+                <div class="hud-header-container">
+                    <h2>SAmaniacLabs</h2>
+                    <p>Magic Window Filter</p>
+                </div>
 
-        <div class="hud-section">
-            <h3>FILTER PRESETS</h3>
-            <div class="preset-selector-grid">
-                <button class="preset-btn active" data-preset="0" onclick="setFilterPreset(0)">Spectrum Halftone</button>
-                <button class="preset-btn" data-preset="1" onclick="setFilterPreset(1)">Cyber Metal</button>
-                <button class="preset-btn" data-preset="2" onclick="setFilterPreset(2)">Digital Matrix</button>
-                <button class="preset-btn" data-preset="3" onclick="setFilterPreset(3)">Synthwave Glitch</button>
-                <button class="preset-btn" data-preset="4" onclick="setFilterPreset(4)" style="grid-column: span 2;">🔥 Eldritch Mandala</button>
-            </div>
-        </div>
+                <div class="hud-section">
+                    <h3>SYSTEM DIAGNOSTICS</h3>
+                    <div class="hud-stats">
+                        <div class="stat-row">
+                            <span>Active Preset:</span>
+                            <span id="preset-val" class="accent-text">Spectrum Halftone</span>
+                        </div>
+                    </div>
+                </div>
 
-        <div class="hud-section">
-            <h3>THEME COLOR</h3>
-            <div class="theme-selector-grid">
-                <button class="theme-dot active" data-theme="gold" onclick="setTheme('gold')" style="background: #c9a87c;" title="Gold Dust"></button>
-                <button class="theme-dot" data-theme="cyber" onclick="setTheme('cyber')" style="background: linear-gradient(135deg, #ff007f, #00ffff);" title="Cyberpunk"></button>
-                <button class="theme-dot" data-theme="toxic" onclick="setTheme('toxic')" style="background: #39ff14;" title="Toxic Acid"></button>
-                <button class="theme-dot" data-theme="matrix" onclick="setTheme('matrix')" style="background: #00ff66;" title="Deep Matrix"></button>
-                <button class="theme-dot" data-theme="sunset" onclick="setTheme('sunset')" style="background: linear-gradient(135deg, #ff5e62, #ff9966);" title="Retro Sunset"></button>
-            </div>
-        </div>
+                <div class="hud-section">
+                    <h3>INTERACTIVE CONTROLS</h3>
+                    <div class="toggle-buttons">
+                        <button id="toggle-audio" class="hud-btn muted" onclick="toggleAudio()">
+                            <span class="icon">🔇</span> Sound: MUTED
+                        </button>
+                        <button id="toggle-mic" class="hud-btn off" onclick="toggleMic()">
+                            <span class="icon">🎤</span> Mic Beat: OFF
+                        </button>
+                        <button id="btn-snapshot" class="hud-btn" onclick="takeSnapshot()">
+                            <span class="icon">📸</span> Take Snapshot
+                        </button>
+                        <button id="toggle-helpers" class="hud-btn off" onclick="toggleHelpers()">
+                            <span class="icon">👁️‍🗨️</span> Guides: HIDDEN
+                        </button>
+                        <button id="toggle-dashboard" class="hud-btn" onclick="toggleDashboardCollapse()">
+                            <span class="icon">🎛️</span> Hide Controls
+                        </button>
+                    </div>
+                </div>
 
-        <div class="hud-section" style="border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 15px;">
-            <h3>TRACKING DIAGNOSTICS</h3>
-            <div style="font-family: monospace; font-size: 11px; opacity: 0.85; line-height: 1.6;">
-                <div>Hands detected: <span id="debug-hands" class="accent-text">0</span></div>
-                <div>Fingers extended: <span id="debug-fingers" class="accent-text">0</span></div>
-                <div>Shape status: <span id="debug-status" class="accent-text">WAITING (Needs 3+ fingers)</span></div>
-            </div>
-        </div>
+                <div class="hud-section">
+                    <h3>FILTER PRESETS</h3>
+                    <div class="preset-selector-grid">
+                        <button class="preset-btn active" data-preset="0" onclick="setFilterPreset(0)">Spectrum Halftone</button>
+                        <button class="preset-btn" data-preset="1" onclick="setFilterPreset(1)">Cyber Metal</button>
+                        <button class="preset-btn" data-preset="2" onclick="setFilterPreset(2)">Digital Matrix</button>
+                        <button class="preset-btn" data-preset="3" onclick="setFilterPreset(3)">Synthwave Glitch</button>
+                        <button class="preset-btn" data-preset="4" onclick="setFilterPreset(4)" style="grid-column: span 2;">🔥 Eldritch Mandala</button>
+                    </div>
+                </div>
 
-        <div class="hud-footer">
-            <div class="hud-footer-item">
-                <span class="key-badge">SPACE</span> <span>Cycle Presets</span>
+                <div class="hud-section">
+                    <h3>THEME COLOR</h3>
+                    <div class="theme-selector-grid">
+                        <button class="theme-dot active" data-theme="gold" onclick="setTheme('gold')" style="background: #c9a87c;" title="Gold Dust"></button>
+                        <button class="theme-dot" data-theme="cyber" onclick="setTheme('cyber')" style="background: linear-gradient(135deg, #ff007f, #00ffff);" title="Cyberpunk"></button>
+                        <button class="theme-dot" data-theme="toxic" onclick="setTheme('toxic')" style="background: #39ff14;" title="Toxic Acid"></button>
+                        <button class="theme-dot" data-theme="matrix" onclick="setTheme('matrix')" style="background: #00ff66;" title="Deep Matrix"></button>
+                        <button class="theme-dot" data-theme="sunset" onclick="setTheme('sunset')" style="background: linear-gradient(135deg, #ff5e62, #ff9966);" title="Retro Sunset"></button>
+                    </div>
+                </div>
+
+                <div class="hud-section" style="border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 15px;">
+                    <h3>TRACKING DIAGNOSTICS</h3>
+                    <div style="font-family: monospace; font-size: 11px; opacity: 0.85; line-height: 1.6;">
+                        <div>Hands detected: <span id="debug-hands" class="accent-text">0</span></div>
+                        <div>Fingers extended: <span id="debug-fingers" class="accent-text">0</span></div>
+                        <div>Shape status: <span id="debug-status" class="accent-text">WAITING (Needs 3+ fingers)</span></div>
+                    </div>
+                </div>
+
+                <div class="hud-footer">
+                    <div class="hud-footer-item">
+                        <span class="key-badge">SPACE</span> <span>Cycle Presets</span>
+                    </div>
+                    <div class="hud-footer-item">
+                        <span class="key-badge">H</span> <span>Toggle Guides</span>
+                    </div>
+                    <div class="hud-footer-item">
+                        <span class="key-badge">M</span> <span>Mute / Unmute Synth</span>
+                    </div>
+                    <div class="hud-footer-item">
+                        <span class="key-badge">S</span> <span>Take Snapshot</span>
+                    </div>
+                    <div class="hud-footer-item">
+                        <span class="key-badge">D</span> <span>Toggle Controls</span>
+                    </div>
+                </div>
             </div>
-            <div class="hud-footer-item">
-                <span class="key-badge">H</span> <span>Toggle Guides</span>
-            </div>
-            <div class="hud-footer-item">
-                <span class="key-badge">M</span> <span>Mute / Unmute Synth</span>
-            </div>
-            <div class="hud-footer-item">
-                <span class="key-badge">S</span> <span>Take Snapshot</span>
-            </div>
-            <div class="hud-footer-item">
-                <span class="key-badge">D</span> <span>Toggle Controls</span>
-            </div>
+
         </div>
     </div>
 
@@ -510,10 +658,11 @@
         const loadingOverlay = document.getElementById('loading-overlay');
         const loadingText = document.getElementById('loading-text');
 
-        // --- Canvas Full-Screen Resizing ---
+        // --- Canvas Sizing (Fixed 640x480 resolution for performance stability) ---
         function resizeCanvas() {
-            canvasElement.width = window.innerWidth;
-            canvasElement.height = window.innerHeight;
+            // Logical drawing buffer is kept fixed at 640x480.
+            // CSS styles handle stretching and responsive layout on all devices.
+            // This prevents lag and page reflow glitches.
         }
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
@@ -590,6 +739,19 @@
                     dot.classList.remove('active');
                 }
             });
+            
+            // Update active theme badge inside camera card header
+            const badge = document.getElementById('active-theme-badge');
+            if (badge) {
+                const displayNames = {
+                    gold: 'Gold Dust',
+                    cyber: 'Cyberpunk',
+                    toxic: 'Toxic Acid',
+                    matrix: 'Deep Matrix',
+                    sunset: 'Retro Sunset'
+                };
+                badge.innerText = (displayNames[themeName] || themeName).toUpperCase() + " THEME";
+            }
             
             console.log(`Accent theme set to: ${themeName}`);
         }
