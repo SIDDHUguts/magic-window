@@ -1944,32 +1944,41 @@
 
                 // 4. Render Circular Sectors (Single Readback Optimization)
                 if (polyW > 5 && polyH > 5) {
+                    // Downscale the filter canvas to keep CPU utilization extremely low (resolves all lagging issues)
+                    const maxFilterDim = 180;
+                    let scale = 1.0;
+                    if (polyW > maxFilterDim || polyH > maxFilterDim) {
+                        scale = maxFilterDim / Math.max(polyW, polyH);
+                    }
+                    const bufferW = Math.round(polyW * scale);
+                    const bufferH = Math.round(polyH * scale);
+
                     // Create 3 temporary offscreen canvases to pre-apply filters
                     const canvasTop = document.createElement('canvas');
-                    canvasTop.width = polyW;
-                    canvasTop.height = polyH;
+                    canvasTop.width = bufferW;
+                    canvasTop.height = bufferH;
                     const ctxTop = canvasTop.getContext('2d');
-                    ctxTop.drawImage(canvasElement, minX, minY, polyW, polyH, 0, 0, polyW, polyH);
+                    ctxTop.drawImage(canvasElement, minX, minY, polyW, polyH, 0, 0, bufferW, bufferH);
 
                     const canvasMid = document.createElement('canvas');
-                    canvasMid.width = polyW;
-                    canvasMid.height = polyH;
+                    canvasMid.width = bufferW;
+                    canvasMid.height = bufferH;
                     const ctxMid = canvasMid.getContext('2d');
-                    ctxMid.drawImage(canvasElement, minX, minY, polyW, polyH, 0, 0, polyW, polyH);
+                    ctxMid.drawImage(canvasElement, minX, minY, polyW, polyH, 0, 0, bufferW, bufferH);
 
                     const canvasBot = document.createElement('canvas');
-                    canvasBot.width = polyW;
-                    canvasBot.height = polyH;
+                    canvasBot.width = bufferW;
+                    canvasBot.height = bufferH;
                     const ctxBot = canvasBot.getContext('2d');
-                    ctxBot.drawImage(canvasElement, minX, minY, polyW, polyH, 0, 0, polyW, polyH);
+                    ctxBot.drawImage(canvasElement, minX, minY, polyW, polyH, 0, 0, bufferW, bufferH);
 
                     // Capture clean pixels once from top canvas to pass to shaders (ASCII, halftone, etc.)
-                    const origData = ctxTop.getImageData(0, 0, polyW, polyH);
+                    const origData = ctxTop.getImageData(0, 0, bufferW, bufferH);
 
                     // Apply preset filters once to the offscreen canvases
-                    preset.top(ctxTop, 0, 0, polyW, polyH, origData);
-                    preset.mid(ctxMid, 0, 0, polyW, polyH, origData);
-                    preset.bot(ctxBot, 0, 0, polyW, polyH, origData);
+                    preset.top(ctxTop, 0, 0, bufferW, bufferH, origData);
+                    preset.mid(ctxMid, 0, 0, bufferW, bufferH, origData);
+                    preset.bot(ctxBot, 0, 0, bufferW, bufferH, origData);
 
                     // Draw 3 fanning circular sectors (pie wedges) onto the main screen canvas
                     const arcStep = (2 * Math.PI) / 3;
@@ -1989,7 +1998,8 @@
                         else if (i === 1) srcCanvas = canvasMid;
                         else srcCanvas = canvasBot;
 
-                        canvasCtx.drawImage(srcCanvas, 0, 0, polyW, polyH, minX, minY, polyW, polyH);
+                        // Hardware-accelerated scaling back to screen size
+                        canvasCtx.drawImage(srcCanvas, 0, 0, bufferW, bufferH, minX, minY, polyW, polyH);
                         canvasCtx.restore();
                     }
                 }
