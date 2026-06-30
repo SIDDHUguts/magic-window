@@ -2322,14 +2322,22 @@
 
         async function startWebcam() {
             try {
-                // Request camera permission
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        width: 640,
-                        height: 480,
-                        frameRate: { ideal: 120, min: 60 }
-                    }
-                });
+                // Request camera permission with fail-safe fallback
+                let stream;
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        video: {
+                            width: 640,
+                            height: 480,
+                            frameRate: { ideal: 120 }
+                        }
+                    });
+                } catch (e) {
+                    console.warn("High frame rate camera constraints failed, falling back to standard video...", e);
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        video: true
+                    });
+                }
                 
                 videoElement.srcObject = stream;
                 
