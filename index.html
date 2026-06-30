@@ -1686,6 +1686,28 @@
 
         hands.onResults(onResults);
 
+        // Render circular border vibrating like a high-tech visualizer string
+        function drawCircularWaveform(ctx, cx, cy, R) {
+            ctx.beginPath();
+            const segments = 120; // 120 segments for perfect smoothness
+            const angleStep = (2 * Math.PI) / segments;
+            
+            for (let i = 0; i <= segments; i++) {
+                const angle = i * angleStep;
+                // Vibrating audio noise throb
+                const throb = Math.sin(angle * 12 + Date.now() * 0.016) * 4.5 * (1.0 + micBassValue * 3.5);
+                const currentR = R + throb;
+                const px = cx + currentR * Math.cos(angle);
+                const py = cy + currentR * Math.sin(angle);
+                
+                if (i === 0) {
+                    ctx.moveTo(px, py);
+                } else {
+                    ctx.lineTo(px, py);
+                }
+            }
+        }
+
         // Core draw loop trigger on hand model output
         function onResults(results) {
             // --- Process Microphone Reactivity ---
@@ -1865,10 +1887,7 @@
                 }
             }
 
-            // --- Bounding Mesh & Rendering Solver ---
-
-            // --- Bounding Mesh & Rendering Solver ---
-            // If exactly 2 hands are detected, we spawn the circular filter portal between them
+            // --- Bounding Mesh & Rendering Solver --            // If exactly 2 hands are detected, we spawn the circular filter portal between them
             if (handCount === 2 && results.multiHandLandmarks) {
                 const h1 = results.multiHandLandmarks[0][9]; // Middle MCP of hand 1
                 const h2 = results.multiHandLandmarks[1][9]; // Middle MCP of hand 2
@@ -1885,25 +1904,13 @@
                 // Hand-to-hand distance
                 const handToHandDist = Math.sqrt(Math.pow(h1X - h2X, 2) + Math.pow(h1Y - h2Y, 2));
                 
-                // Shape size R is dynamically driven by the hand-to-hand distance
+                // Portal size radius R is dynamically driven by the hand-to-hand distance
                 const R = Math.max(35, handToHandDist * 0.55);
                 
                 // Orientation angle is the slope of the line connecting the two hands
                 const theta = Math.atan2(h2Y - h1Y, h2X - h1X);
                 
-                // We construct a clean 6-sided polygon (hexagon) to represent the circular portal
-                const N = 6;
-                const shapeVertices = [];
-                const angleStep = (2 * Math.PI) / N;
-                for (let i = 0; i < N; i++) {
-                    const a = theta + i * angleStep;
-                    shapeVertices.push({
-                        x: Math.round(cx + R * Math.cos(a)),
-                        y: Math.round(cy + R * Math.sin(a))
-                    });
-                }
-                
-                // Calculate bounding box width and height spans of the shape
+                // Calculate bounding box width and height spans of the circular shape
                 let minX = cx - R, maxX = cx + R, minY = cy - R, maxY = cy + R;
                 minX = Math.max(0, Math.min(w - 10, minX));
                 maxX = Math.max(10, Math.min(w, maxX));
@@ -1915,263 +1922,241 @@
                 
                 const preset = prismPresets[currentFilterIdx % prismPresets.length];
 
-                    // 3. Modulate synthesizer parameters dynamically
-                    if (audioCtx && isAudioEnabled && resonantFilter && oscillator && synthGainNode) {
-                        // Centroid height maps to pitch frequency
-                        let freq = 85 + (1.0 - (cy / h)) * 435; 
-                        if (preset.name === "Eldritch Mandala") {
-                            // Add magical frequency wobble (vibrato)
-                            const wobble = Math.sin(Date.now() * 0.015) * 35;
-                            freq += wobble;
-                        }
-                        oscillator.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.05);
-                        
-                        // Calculate average radius of the polygon (maps to filter cutoff)
-                        let totalRadius = 0;
-                        for (let i = 0; i < N; i++) {
-                            totalRadius += Math.sqrt(Math.pow(shapeVertices[i].x - cx, 2) + Math.pow(shapeVertices[i].y - cy, 2));
-                        }
-                        const avgRadius = totalRadius / N;
-                        const cutoff = 180 + Math.min(1.0, avgRadius / 250) * 2620; 
-                        resonantFilter.frequency.setTargetAtTime(cutoff, audioCtx.currentTime, 0.05);
-                        
-                        // Average depth maps to volume
-                        const avgDepth = (handCount > 0) ? (totalHandDepth / handCount) : 80;
-                        const targetGain = 0.04 + Math.min(1.0, avgDepth / 130) * 0.11; 
-                        synthGainNode.gain.setTargetAtTime(targetGain, audioCtx.currentTime, 0.05);
-                    }
-
-                    // 4. Render Polygon Sectors (Single Readback Optimization)
-                    if (polyW > 5 && polyH > 5) {
-                        // Create 3 temporary offscreen canvases to pre-apply filters
-                        const canvasTop = document.createElement('canvas');
-                        canvasTop.width = polyW;
-                        canvasTop.height = polyH;
-                        const ctxTop = canvasTop.getContext('2d');
-                        ctxTop.drawImage(canvasElement, minX, minY, polyW, polyH, 0, 0, polyW, polyH);
-
-                        const canvasMid = document.createElement('canvas');
-                        canvasMid.width = polyW;
-                        canvasMid.height = polyH;
-                        const ctxMid = canvasMid.getContext('2d');
-                        ctxMid.drawImage(canvasElement, minX, minY, polyW, polyH, 0, 0, polyW, polyH);
-
-                        const canvasBot = document.createElement('canvas');
-                        canvasBot.width = polyW;
-                        canvasBot.height = polyH;
-                        const ctxBot = canvasBot.getContext('2d');
-                        ctxBot.drawImage(canvasElement, minX, minY, polyW, polyH, 0, 0, polyW, polyH);
-
-                        // Capture clean pixels once from top canvas to pass to shaders (ASCII, halftone, etc.)
-                        const origData = ctxTop.getImageData(0, 0, polyW, polyH);
-
-                        // Apply preset filters once to the offscreen canvases
-                        preset.top(ctxTop, 0, 0, polyW, polyH, origData);
-                        preset.mid(ctxMid, 0, 0, polyW, polyH, origData);
-                        preset.bot(ctxBot, 0, 0, polyW, polyH, origData);
-
-                        // Draw fanning sectors onto the main screen canvas using the pre-applied offscreen buffers
-                        for (let i = 0; i < N; i++) {
-                            const p1 = shapeVertices[i];
-                            const p2 = shapeVertices[(i + 1) % N];
-
-                            canvasCtx.save();
-                            canvasCtx.beginPath();
-                            canvasCtx.moveTo(cx, cy);
-                            canvasCtx.lineTo(p1.x, p1.y);
-                            canvasCtx.lineTo(p2.x, p2.y);
-                            canvasCtx.closePath();
-                            canvasCtx.clip();
-
-                            const sectorFilterIdx = i % 3;
-                            let srcCanvas;
-                            if (sectorFilterIdx === 0) srcCanvas = canvasTop;
-                            else if (sectorFilterIdx === 1) srcCanvas = canvasMid;
-                            else srcCanvas = canvasBot;
-
-                            canvasCtx.drawImage(srcCanvas, 0, 0, polyW, polyH, minX, minY, polyW, polyH);
-                            canvasCtx.restore();
-                        }
-                    }
-
+                // 3. Modulate synthesizer parameters dynamically
+                if (audioCtx && isAudioEnabled && resonantFilter && oscillator && synthGainNode) {
+                    // Centroid height maps to pitch frequency
+                    let freq = 85 + (1.0 - (cy / h)) * 435; 
                     if (preset.name === "Eldritch Mandala") {
-                        // Draw radial glowing gold gradient inside the shape first
+                        const wobble = Math.sin(Date.now() * 0.015) * 35;
+                        freq += wobble;
+                    }
+                    oscillator.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.05);
+                    
+                    // Radius R maps directly to filter cutoff
+                    const cutoff = 180 + Math.min(1.0, R / 250) * 2620; 
+                    resonantFilter.frequency.setTargetAtTime(cutoff, audioCtx.currentTime, 0.05);
+                    
+                    // Average depth maps to volume
+                    const avgDepth = (handCount > 0) ? (totalHandDepth / handCount) : 80;
+                    const targetGain = 0.04 + Math.min(1.0, avgDepth / 130) * 0.11; 
+                    synthGainNode.gain.setTargetAtTime(targetGain, audioCtx.currentTime, 0.05);
+                }
+
+                // 4. Render Circular Sectors (Single Readback Optimization)
+                if (polyW > 5 && polyH > 5) {
+                    // Create 3 temporary offscreen canvases to pre-apply filters
+                    const canvasTop = document.createElement('canvas');
+                    canvasTop.width = polyW;
+                    canvasTop.height = polyH;
+                    const ctxTop = canvasTop.getContext('2d');
+                    ctxTop.drawImage(canvasElement, minX, minY, polyW, polyH, 0, 0, polyW, polyH);
+
+                    const canvasMid = document.createElement('canvas');
+                    canvasMid.width = polyW;
+                    canvasMid.height = polyH;
+                    const ctxMid = canvasMid.getContext('2d');
+                    ctxMid.drawImage(canvasElement, minX, minY, polyW, polyH, 0, 0, polyW, polyH);
+
+                    const canvasBot = document.createElement('canvas');
+                    canvasBot.width = polyW;
+                    canvasBot.height = polyH;
+                    const ctxBot = canvasBot.getContext('2d');
+                    ctxBot.drawImage(canvasElement, minX, minY, polyW, polyH, 0, 0, polyW, polyH);
+
+                    // Capture clean pixels once from top canvas to pass to shaders (ASCII, halftone, etc.)
+                    const origData = ctxTop.getImageData(0, 0, polyW, polyH);
+
+                    // Apply preset filters once to the offscreen canvases
+                    preset.top(ctxTop, 0, 0, polyW, polyH, origData);
+                    preset.mid(ctxMid, 0, 0, polyW, polyH, origData);
+                    preset.bot(ctxBot, 0, 0, polyW, polyH, origData);
+
+                    // Draw 3 fanning circular sectors (pie wedges) onto the main screen canvas
+                    const arcStep = (2 * Math.PI) / 3;
+                    for (let i = 0; i < 3; i++) {
+                        const startAngle = theta + i * arcStep;
+                        const endAngle = theta + (i + 1) * arcStep;
+
                         canvasCtx.save();
                         canvasCtx.beginPath();
-                        canvasCtx.moveTo(shapeVertices[0].x, shapeVertices[0].y);
-                        for (let i = 1; i < N; i++) {
-                            canvasCtx.lineTo(shapeVertices[i].x, shapeVertices[i].y);
-                        }
+                        canvasCtx.moveTo(cx, cy);
+                        canvasCtx.arc(cx, cy, R, startAngle, endAngle);
                         canvasCtx.closePath();
                         canvasCtx.clip();
-                        
-                        const grad = canvasCtx.createRadialGradient(cx, cy, 10, cx, cy, R);
-                        grad.addColorStop(0, 'rgba(255, 235, 160, 0.4)'); // Bright golden core
-                        grad.addColorStop(0.5, 'rgba(255, 120, 0, 0.25)'); // Orange
-                        grad.addColorStop(1, 'rgba(255, 40, 0, 0.02)'); // Outward red glow
-                        canvasCtx.fillStyle = grad;
+
+                        let srcCanvas;
+                        if (i === 0) srcCanvas = canvasTop;
+                        else if (i === 1) srcCanvas = canvasMid;
+                        else srcCanvas = canvasBot;
+
+                        canvasCtx.drawImage(srcCanvas, 0, 0, polyW, polyH, minX, minY, polyW, polyH);
+                        canvasCtx.restore();
+                    }
+                }
+
+                if (preset.name === "Eldritch Mandala") {
+                    // Draw radial glowing gold gradient inside the circle first
+                    canvasCtx.save();
+                    canvasCtx.beginPath();
+                    canvasCtx.arc(cx, cy, R, 0, 2 * Math.PI);
+                    canvasCtx.clip();
+                    
+                    const grad = canvasCtx.createRadialGradient(cx, cy, 10, cx, cy, R);
+                    grad.addColorStop(0, 'rgba(255, 235, 160, 0.4)'); // Bright golden core
+                    grad.addColorStop(0.5, 'rgba(255, 120, 0, 0.25)'); // Orange
+                    grad.addColorStop(1, 'rgba(255, 40, 0, 0.02)'); // Outward red glow
+                    canvasCtx.fillStyle = grad;
+                    canvasCtx.fill();
+                    canvasCtx.restore();
+
+                    // Now draw rotating concentric dashed rings
+                    canvasCtx.save();
+                    canvasCtx.shadowColor = 'rgba(255, 100, 0, 0.9)'; // Glowing orange shadow
+                    canvasCtx.shadowBlur = 12 + micBassValue * 15;
+                    canvasCtx.strokeStyle = 'rgba(255, 140, 0, 0.85)';
+                    
+                    const rotTime = Date.now() * 0.001;
+
+                    // Ring 1: R * 0.45, rotates clockwise
+                    canvasCtx.beginPath();
+                    canvasCtx.arc(cx, cy, R * 0.45, 0, 2 * Math.PI);
+                    canvasCtx.lineWidth = 2.5 + micBassValue * 3;
+                    canvasCtx.setLineDash([12, 18]);
+                    canvasCtx.save();
+                    canvasCtx.translate(cx, cy);
+                    canvasCtx.rotate(rotTime * 0.8);
+                    canvasCtx.translate(-cx, -cy);
+                    canvasCtx.stroke();
+                    canvasCtx.restore();
+
+                    // Ring 2: R * 0.75, rotates counter-clockwise
+                    canvasCtx.beginPath();
+                    canvasCtx.arc(cx, cy, R * 0.75, 0, 2 * Math.PI);
+                    canvasCtx.lineWidth = 1.8 + micBassValue * 2;
+                    canvasCtx.setLineDash([5, 8, 20, 8]);
+                    canvasCtx.save();
+                    canvasCtx.translate(cx, cy);
+                    canvasCtx.rotate(-rotTime * 0.5);
+                    canvasCtx.translate(-cx, -cy);
+                    canvasCtx.stroke();
+                    canvasCtx.restore();
+
+                    // Ring 3: R * 0.92, thin outer solid ring
+                    canvasCtx.beginPath();
+                    canvasCtx.arc(cx, cy, R * 0.92, 0, 2 * Math.PI);
+                    canvasCtx.lineWidth = 1.2;
+                    canvasCtx.setLineDash([]);
+                    canvasCtx.stroke();
+                    
+                    canvasCtx.restore();
+                }
+
+                // 5. Draw Outer Boundary Circular Visualizer (React to music throb)
+                drawCircularWaveform(canvasCtx, cx, cy, R);
+                if (preset.name === "Eldritch Mandala") {
+                    canvasCtx.save();
+                    canvasCtx.shadowColor = 'rgba(255, 60, 0, 0.8)';
+                    canvasCtx.shadowBlur = 12 + micBassValue * 10;
+                    canvasCtx.strokeStyle = 'rgba(255, 100, 0, 0.95)';
+                } else {
+                    canvasCtx.strokeStyle = themes[activeTheme].primary;
+                }
+                canvasCtx.lineWidth = 2.5 + micBassValue * 6.0; 
+                canvasCtx.stroke();
+                if (preset.name === "Eldritch Mandala") canvasCtx.restore();
+
+                // 6. Draw Internal Dividers (3 Radial lines dividing the sectors)
+                canvasCtx.beginPath();
+                const arcStep = (2 * Math.PI) / 3;
+                for (let i = 0; i < 3; i++) {
+                    const angle = theta + i * arcStep;
+                    canvasCtx.moveTo(cx, cy);
+                    canvasCtx.lineTo(cx + R * Math.cos(angle), cy + R * Math.sin(angle));
+                }
+                if (preset.name === "Eldritch Mandala") {
+                    canvasCtx.strokeStyle = 'rgba(255, 140, 0, 0.7)';
+                } else {
+                    canvasCtx.strokeStyle = themes[activeTheme].glow;
+                }
+                canvasCtx.lineWidth = 1 + micBassValue * 2.0;
+                canvasCtx.stroke();
+
+                // Draw Glowing Dots at the 3 divider points on the border (if guides are shown)
+                if (showHelpers) {
+                    canvasCtx.save();
+                    for (let i = 0; i < 3; i++) {
+                        const angle = theta + i * arcStep;
+                        const px = cx + R * Math.cos(angle);
+                        const py = cy + R * Math.sin(angle);
+                        canvasCtx.beginPath();
+                        canvasCtx.arc(px, py, 6, 0, 2 * Math.PI);
+                        canvasCtx.fillStyle = themes[activeTheme].primary;
+                        canvasCtx.shadowColor = themes[activeTheme].primary;
+                        canvasCtx.shadowBlur = 10;
                         canvasCtx.fill();
-                        canvasCtx.restore();
+                    }
+                    canvasCtx.restore();
+                }
 
-                        // Now draw rotating concentric dashed rings
-                        canvasCtx.save();
-                        canvasCtx.shadowColor = 'rgba(255, 100, 0, 0.9)'; // Glowing orange shadow
-                        canvasCtx.shadowBlur = 12 + micBassValue * 15;
-                        canvasCtx.strokeStyle = 'rgba(255, 140, 0, 0.85)';
+                // 7. Emitter Spark Particles (Along Circular Boundary)
+                const dx = cx - prevBoxCenterX;
+                const dy = cy - prevBoxCenterY;
+                const speed = Math.sqrt(dx * dx + dy * dy);
+
+                let pColor = themes[activeTheme].particle;
+                if (preset.name === "Eldritch Mandala") {
+                    pColor = Math.random() > 0.45 ? 'rgba(255, 120, 0, ' : 'rgba(255, 215, 60, ';
+                } else if (activeTheme === 'gold') {
+                    if (currentFilterIdx === 0) {
+                        pColor = Math.random() > 0.5 ? 'rgba(0, 100, 255, ' : 'rgba(255, 50, 50, ';
+                    } else if (currentFilterIdx === 1) {
+                        pColor = Math.random() > 0.5 ? 'rgba(0, 255, 255, ' : 'rgba(255, 99, 132, ';
+                    } else if (currentFilterIdx === 2) {
+                        pColor = 'rgba(0, 255, 50, ';
+                    } else if (currentFilterIdx === 3) {
+                        pColor = Math.random() > 0.5 ? 'rgba(255, 0, 128, ' : 'rgba(0, 255, 200, ';
+                    }
+                } else if (activeTheme === 'cyber') {
+                    pColor = Math.random() > 0.5 ? 'rgba(255, 0, 127, ' : 'rgba(0, 255, 255, ';
+                } else if (activeTheme === 'sunset') {
+                    pColor = Math.random() > 0.5 ? 'rgba(255, 94, 98, ' : 'rgba(255, 153, 102, ';
+                }
+
+                if (speed > 2.0 || micBassValue > 0.15) {
+                    const oppX = -dx / (speed || 1);
+                    const oppY = -dy / (speed || 1);
+                    const sparkSpawnCount = speed > 2.0 ? 3 : Math.floor(micBassValue * 5);
+                    for (let k = 0; k < sparkSpawnCount; k++) {
+                        const angle = Math.random() * 2 * Math.PI;
+                        const px = Math.round(cx + R * Math.cos(angle));
+                        const py = Math.round(cy + R * Math.sin(angle));
+                        const vx = oppX * (0.8 + Math.random() * 1.5) + (Math.random() - 0.5) * 1.2;
+                        const vy = oppY * (0.8 + Math.random() * 1.5) + (Math.random() - 0.5) * 1.2;
+                        particles.push(new Particle(px, py, vx, vy, pColor));
+                    }
+                }
+
+                // 8. Flowing Outward Particle Stream (Flows along 3 divider lines out to circular border)
+                for (let i = 0; i < 3; i++) {
+                    const angle = theta + i * arcStep;
+                    const ndx = Math.cos(angle);
+                    const ndy = Math.sin(angle);
+                    if (Math.random() < 0.35 + micVolumeValue * 0.15) {
+                        const flowSpeed = (2.0 + Math.random() * 4.0) * (1.0 + micBassValue * 2.5);
+                        const perpX = -ndy;
+                        const perpY = ndx;
+                        const spread = (Math.random() - 0.5) * 1.8; 
                         
-                        const rotTime = Date.now() * 0.001;
-
-                        // Ring 1: R * 0.45, rotates clockwise
-                        canvasCtx.beginPath();
-                        canvasCtx.arc(cx, cy, R * 0.45, 0, 2 * Math.PI);
-                        canvasCtx.lineWidth = 2.5 + micBassValue * 3;
-                        canvasCtx.setLineDash([12, 18]);
-                        canvasCtx.save();
-                        canvasCtx.translate(cx, cy);
-                        canvasCtx.rotate(rotTime * 0.8);
-                        canvasCtx.translate(-cx, -cy);
-                        canvasCtx.stroke();
-                        canvasCtx.restore();
-
-                        // Ring 2: R * 0.75, rotates counter-clockwise
-                        canvasCtx.beginPath();
-                        canvasCtx.arc(cx, cy, R * 0.75, 0, 2 * Math.PI);
-                        canvasCtx.lineWidth = 1.8 + micBassValue * 2;
-                        canvasCtx.setLineDash([5, 8, 20, 8]);
-                        canvasCtx.save();
-                        canvasCtx.translate(cx, cy);
-                        canvasCtx.rotate(-rotTime * 0.5);
-                        canvasCtx.translate(-cx, -cy);
-                        canvasCtx.stroke();
-                        canvasCtx.restore();
-
-                        // Ring 3: R * 0.92, thin outer solid ring
-                        canvasCtx.beginPath();
-                        canvasCtx.arc(cx, cy, R * 0.92, 0, 2 * Math.PI);
-                        canvasCtx.lineWidth = 1.2;
-                        canvasCtx.setLineDash([]);
-                        canvasCtx.stroke();
-                        
-                        canvasCtx.restore();
-                    }
-
-                    // 5. Draw Outer Boundary Visualizer Lines (React to music throb)
-                    canvasCtx.beginPath();
-                    for (let i = 0; i < N; i++) {
-                        drawWaveformLine(canvasCtx, shapeVertices[i], shapeVertices[(i + 1) % N]);
-                    }
-                    if (preset.name === "Eldritch Mandala") {
-                        canvasCtx.save();
-                        canvasCtx.shadowColor = 'rgba(255, 60, 0, 0.8)';
-                        canvasCtx.shadowBlur = 12 + micBassValue * 10;
-                        canvasCtx.strokeStyle = 'rgba(255, 100, 0, 0.95)';
-                    } else {
-                        canvasCtx.strokeStyle = themes[activeTheme].primary;
-                    }
-                    canvasCtx.lineWidth = 2.5 + micBassValue * 6.0; 
-                    canvasCtx.stroke();
-                    if (preset.name === "Eldritch Mandala") canvasCtx.restore();
-
-                    // 6. Draw Internal Dividers (Fanning from Center to each finger Tip)
-                    canvasCtx.beginPath();
-                    for (let i = 0; i < N; i++) {
-                        canvasCtx.moveTo(cx, cy);
-                        canvasCtx.lineTo(shapeVertices[i].x, shapeVertices[i].y);
-                    }
-                    if (preset.name === "Eldritch Mandala") {
-                        canvasCtx.strokeStyle = 'rgba(255, 140, 0, 0.7)';
-                    } else {
-                        canvasCtx.strokeStyle = themes[activeTheme].glow;
-                    }
-                    canvasCtx.lineWidth = 1 + micBassValue * 2.0;
-                    canvasCtx.stroke();
-
-                    // Draw Glowing Dots at active finger tips (if guides are shown)
-                    if (showHelpers) {
-                        canvasCtx.save();
-                        for (let i = 0; i < N; i++) {
-                            canvasCtx.beginPath();
-                            canvasCtx.arc(shapeVertices[i].x, shapeVertices[i].y, 6, 0, 2 * Math.PI);
-                            canvasCtx.fillStyle = themes[activeTheme].primary;
-                            canvasCtx.shadowColor = themes[activeTheme].primary;
-                            canvasCtx.shadowBlur = 10;
-                            canvasCtx.fill();
+                        let spiralSpeed = 0;
+                        if (preset.name === "Eldritch Mandala") {
+                            spiralSpeed = (4.0 + Math.random() * 5.0) * (1.0 + micBassValue * 1.8);
                         }
-                        canvasCtx.restore();
+
+                        const vx = ndx * flowSpeed + perpX * (spread + spiralSpeed);
+                        const vy = ndy * flowSpeed + perpY * (spread + spiralSpeed);
+                        particles.push(new Particle(cx, cy, vx, vy, pColor));
                     }
-
-                    // 7. Emitter Spark Particles (Along Boundary Segments)
-                    // Speed calculated from centroid movement
-                    const dx = cx - prevBoxCenterX;
-                    const dy = cy - prevBoxCenterY;
-                    const speed = Math.sqrt(dx * dx + dy * dy);
-
-                    let pColor = themes[activeTheme].particle;
-                    if (preset.name === "Eldritch Mandala") {
-                        pColor = Math.random() > 0.45 ? 'rgba(255, 120, 0, ' : 'rgba(255, 215, 60, ';
-                    } else if (activeTheme === 'gold') {
-                        if (currentFilterIdx === 0) {
-                            pColor = Math.random() > 0.5 ? 'rgba(0, 100, 255, ' : 'rgba(255, 50, 50, ';
-                        } else if (currentFilterIdx === 1) {
-                            pColor = Math.random() > 0.5 ? 'rgba(0, 255, 255, ' : 'rgba(255, 99, 132, ';
-                        } else if (currentFilterIdx === 2) {
-                            pColor = 'rgba(0, 255, 50, ';
-                        } else if (currentFilterIdx === 3) {
-                            pColor = Math.random() > 0.5 ? 'rgba(255, 0, 128, ' : 'rgba(0, 255, 200, ';
-                        }
-                    } else if (activeTheme === 'cyber') {
-                        pColor = Math.random() > 0.5 ? 'rgba(255, 0, 127, ' : 'rgba(0, 255, 255, ';
-                    } else if (activeTheme === 'sunset') {
-                        pColor = Math.random() > 0.5 ? 'rgba(255, 94, 98, ' : 'rgba(255, 153, 102, ';
-                    }
-
-                    if (speed > 2.0 || micBassValue > 0.15) {
-                        const oppX = -dx / (speed || 1);
-                        const oppY = -dy / (speed || 1);
-                        const sparkSpawnCount = speed > 2.0 ? 3 : Math.floor(micBassValue * 5);
-                        for (let k = 0; k < sparkSpawnCount; k++) {
-                            // Pick a random boundary segment to emit sparks from
-                            const segIdx = Math.floor(Math.random() * N);
-                            const pA = shapeVertices[segIdx];
-                            const pB = shapeVertices[(segIdx + 1) % N];
-                            
-                            const t = Math.random();
-                            const px = Math.round(pA.x + t * (pB.x - pA.x));
-                            const py = Math.round(pA.y + t * (pB.y - pA.y));
-                            const vx = oppX * (0.8 + Math.random() * 1.5) + (Math.random() - 0.5) * 1.2;
-                            const vy = oppY * (0.8 + Math.random() * 1.5) + (Math.random() - 0.5) * 1.2;
-                            particles.push(new Particle(px, py, vx, vy, pColor));
-                        }
-                    }
-
-                    // 8. Flowing Outward Particle Stream (Flows along divider lines from centroid out to vertices)
-                    for (let i = 0; i < N; i++) {
-                        const vertex = shapeVertices[i];
-                        const streamDirX = vertex.x - cx;
-                        const streamDirY = vertex.y - cy;
-                        const streamDist = Math.sqrt(streamDirX * streamDirX + streamDirY * streamDirY);
-                        
-                        if (streamDist > 20) {
-                            const ndx = streamDirX / streamDist;
-                            const ndy = streamDirY / streamDist;
-                            if (Math.random() < 0.35 + micVolumeValue * 0.15) {
-                                const flowSpeed = (2.0 + Math.random() * 4.0) * (1.0 + micBassValue * 2.5);
-                                const perpX = -ndy;
-                                const perpY = ndx;
-                                const spread = (Math.random() - 0.5) * 1.8; 
-                                
-                                // Spiral vortex force for Eldritch Mandala!
-                                let spiralSpeed = 0;
-                                if (preset.name === "Eldritch Mandala") {
-                                    spiralSpeed = (4.0 + Math.random() * 5.0) * (1.0 + micBassValue * 1.8);
-                                }
-
-                                const vx = ndx * flowSpeed + perpX * (spread + spiralSpeed);
-                                const vy = ndy * flowSpeed + perpY * (spread + spiralSpeed);
-                                particles.push(new Particle(cx, cy, vx, vy, pColor));
-                            }
-                        }
-                    }
+                }
 
                 prevBoxCenterX = cx;
                 prevBoxCenterY = cy;
