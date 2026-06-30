@@ -615,7 +615,7 @@
                     <div style="font-family: monospace; font-size: 11px; opacity: 0.85; line-height: 1.6;">
                         <div>Hands detected: <span id="debug-hands" class="accent-text">0</span></div>
                         <div>Fingers extended: <span id="debug-fingers" class="accent-text">0</span></div>
-                        <div>Shape status: <span id="debug-status" class="accent-text">WAITING (Needs 3+ fingers)</span></div>
+                        <div>Portal status: <span id="debug-status" class="accent-text">WAITING (Needs 2 hands)</span></div>
                     </div>
                 </div>
 
@@ -1867,112 +1867,53 @@
 
             // --- Bounding Mesh & Rendering Solver ---
 
-            if (activeFingers.length >= 3) {
-                // Remove duplicates if any fingers get mapped close to each other
-                const uniquePoints = [];
-                for (let i = 0; i < activeFingers.length; i++) {
-                    const p1 = activeFingers[i];
-                    let isDuplicate = false;
-                    for (let j = 0; j < uniquePoints.length; j++) {
-                        const p2 = uniquePoints[j];
-                        const dist = Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
-                        if (dist < 5) {
-                            isDuplicate = true;
-                            break;
-                        }
-                    }
-                    if (!isDuplicate) {
-                        uniquePoints.push(p1);
-                    }
-                }
-
-                if (uniquePoints.length >= 3) {
-                    // 1. Solve Centroid
-                    let sumX = 0, sumY = 0;
-                    for (let i = 0; i < uniquePoints.length; i++) {
-                        sumX += uniquePoints[i].x;
-                        sumY += uniquePoints[i].y;
-                    }
-                    const cx = Math.round(sumX / uniquePoints.length);
-                    const cy = Math.round(sumY / uniquePoints.length);
-
-                    // 2. Sort source finger points clock-wise to calculate orientation
-                    uniquePoints.sort((a, b) => {
-                        const angleA = Math.atan2(a.y - cy, a.x - cx);
-                        const angleB = Math.atan2(b.y - cy, b.x - cx);
-                        return angleA - angleB;
+            // --- Bounding Mesh & Rendering Solver ---
+            // If exactly 2 hands are detected, we spawn the circular filter portal between them
+            if (handCount === 2 && results.multiHandLandmarks) {
+                const h1 = results.multiHandLandmarks[0][9]; // Middle MCP of hand 1
+                const h2 = results.multiHandLandmarks[1][9]; // Middle MCP of hand 2
+                
+                const h1X = Math.round(drawX + (1 - h1.x) * drawW);
+                const h1Y = Math.round(drawY + h1.y * drawH);
+                const h2X = Math.round(drawX + (1 - h2.x) * drawW);
+                const h2Y = Math.round(drawY + h2.y * drawH);
+                
+                // Solve Centroid (midpoint between the two hands)
+                const cx = Math.round((h1X + h2X) / 2);
+                const cy = Math.round((h1Y + h2Y) / 2);
+                
+                // Hand-to-hand distance
+                const handToHandDist = Math.sqrt(Math.pow(h1X - h2X, 2) + Math.pow(h1Y - h2Y, 2));
+                
+                // Shape size R is dynamically driven by the hand-to-hand distance
+                const R = Math.max(35, handToHandDist * 0.55);
+                
+                // Orientation angle is the slope of the line connecting the two hands
+                const theta = Math.atan2(h2Y - h1Y, h2X - h1X);
+                
+                // We construct a clean 6-sided polygon (hexagon) to represent the circular portal
+                const N = 6;
+                const shapeVertices = [];
+                const angleStep = (2 * Math.PI) / N;
+                for (let i = 0; i < N; i++) {
+                    const a = theta + i * angleStep;
+                    shapeVertices.push({
+                        x: Math.round(cx + R * Math.cos(a)),
+                        y: Math.round(cy + R * Math.sin(a))
                     });
-
-                    const N = uniquePoints.length;
-
-                    const preset = prismPresets[currentFilterIdx % prismPresets.length];
-                    const shapeVertices = [];
-
-                    // Calculate bounding box width and height spans of the tracked fingers
-                    let minX = 9999, maxX = -9999, minY = 9999, maxY = -9999;
-                    for (let i = 0; i < N; i++) {
-                        if (uniquePoints[i].x < minX) minX = uniquePoints[i].x;
-                        if (uniquePoints[i].x > maxX) maxX = uniquePoints[i].x;
-                        if (uniquePoints[i].y < minY) minY = uniquePoints[i].y;
-                        if (uniquePoints[i].y > maxY) maxY = uniquePoints[i].y;
-                    }
-                    const spanW = maxX - minX;
-                    const spanH = maxY - minY;
-                    const polyW = spanW;
-                    const polyH = spanH;
-
-                    // If 2 hands are present, also include hand-to-hand distance in the scale
-                    let handToHandDist = 0;
-                    if (results.multiHandLandmarks && results.multiHandLandmarks.length === 2) {
-                        const h1 = results.multiHandLandmarks[0][9]; // Middle MCP of hand 1
-                        const h2 = results.multiHandLandmarks[1][9]; // Middle MCP of hand 2
-                        const h1X = Math.round(drawX + (1 - h1.x) * drawW);
-                        const h1Y = Math.round(drawY + h1.y * drawH);
-                        const h2X = Math.round(drawX + (1 - h2.x) * drawW);
-                        const h2Y = Math.round(drawY + h2.y * drawH);
-                        handToHandDist = Math.sqrt(Math.pow(h1X - h2X, 2) + Math.pow(h1Y - h2Y, 2));
-                    }
-
-                    // Shape size R is dynamically driven by pinch distance and hand-to-hand distance!
-                    const R = Math.max(35, Math.max(maxPinch * 1.8, handToHandDist * 0.55));
-
-                    // Orientation angle of the shape mapped to the first finger vector
-                    const theta = Math.atan2(uniquePoints[0].y - cy, uniquePoints[0].x - cx);
-
-                    if (N === 4) {
-                        // Draw a perfect Rectangle/Square based on vertical/horizontal hand span
-                        const wRect = Math.max(30, spanW / 2);
-                        const hRect = Math.max(30, spanH / 2);
-                        
-                        const corners = [
-                            { x: -wRect, y: -hRect },
-                            { x: wRect, y: -hRect },
-                            { x: wRect, y: hRect },
-                            { x: -wRect, y: hRect }
-                        ];
-                        
-                        const cosT = Math.cos(theta);
-                        const sinT = Math.sin(theta);
-                        
-                        for (let i = 0; i < 4; i++) {
-                            const rx = corners[i].x * cosT - corners[i].y * sinT;
-                            const ry = corners[i].x * sinT + corners[i].y * cosT;
-                            shapeVertices.push({
-                                x: Math.round(cx + rx),
-                                y: Math.round(cy + ry)
-                            });
-                        }
-                    } else {
-                        // Draw perfect regular polygons for other finger counts (Triangle, Pentagon, Hexagon)
-                        const angleStep = (2 * Math.PI) / N;
-                        for (let i = 0; i < N; i++) {
-                            const a = theta + i * angleStep;
-                            shapeVertices.push({
-                                x: Math.round(cx + R * Math.cos(a)),
-                                y: Math.round(cy + R * Math.sin(a))
-                            });
-                        }
-                    }
+                }
+                
+                // Calculate bounding box width and height spans of the shape
+                let minX = cx - R, maxX = cx + R, minY = cy - R, maxY = cy + R;
+                minX = Math.max(0, Math.min(w - 10, minX));
+                maxX = Math.max(10, Math.min(w, maxX));
+                minY = Math.max(0, Math.min(h - 10, minY));
+                maxY = Math.max(10, Math.min(h, maxY));
+                
+                const polyW = maxX - minX;
+                const polyH = maxY - minY;
+                
+                const preset = prismPresets[currentFilterIdx % prismPresets.length];
 
                     // 3. Modulate synthesizer parameters dynamically
                     if (audioCtx && isAudioEnabled && resonantFilter && oscillator && synthGainNode) {
@@ -2232,11 +2173,10 @@
                         }
                     }
 
-                    prevBoxCenterX = cx;
-                    prevBoxCenterY = cy;
-                }
+                prevBoxCenterX = cx;
+                prevBoxCenterY = cy;
             } else {
-                if (synthGainNode) {
+                if (synthGainNode && audioCtx) {
                     synthGainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
                 }
             }
@@ -2299,19 +2239,11 @@
             
             const debugStatus = document.getElementById('debug-status');
             if (debugStatus) {
-                const shapeN = activeFingers.length;
-                if (shapeN >= 3) {
-                    let shapeName = `${shapeN}-sided Polygon`;
-                    if (shapeN === 3) shapeName = "Triangle";
-                    else if (shapeN === 4) shapeName = "Rectangle/Square";
-                    else if (shapeN === 5) shapeName = "Pentagon";
-                    else if (shapeN === 6) shapeName = "Hexagon";
-                    else if (shapeN === 7) shapeName = "Heptagon";
-                    else if (shapeN === 8) shapeName = "Octagon";
-                    debugStatus.innerText = `DRAWING (${shapeName})`;
+                if (handCount === 2) {
+                    debugStatus.innerText = `ACTIVE (Portal Spawned)`;
                     debugStatus.style.color = '#00ff88';
                 } else {
-                    debugStatus.innerText = `WAITING (Needs 3+ fingers)`;
+                    debugStatus.innerText = `WAITING (Needs 2 hands)`;
                     debugStatus.style.color = '#ffaa00';
                 }
             }
