@@ -2350,7 +2350,15 @@
                 requestAnimationFrame(processFrame);
             } catch (err) {
                 console.error("Camera access failed: ", err);
-                loadingText.innerHTML = `<span style="color:#ff3333">CAMERA ACCESS FAILED.<br>PLEASE ALLOW CAMERA PERMISSION AND REFRESH.</span>`;
+                let detail = "Please ensure camera permissions are allowed in your browser settings.";
+                if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                    detail = "Camera permission was blocked. Click the lock / settings icon next to the URL address bar and change Camera to 'Allow'.";
+                } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+                    detail = "Webcam is already in use by another program (Zoom, Teams, or another tab). Close it and reload.";
+                } else if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    detail = "Connection insecure. Camera access requires a secure context (https:// or localhost).";
+                }
+                loadingText.innerHTML = `<span style="color:#ff3333; font-weight: bold; line-height: 1.6;">CAMERA ACCESS FAILED.<br><span style="font-size: 0.82rem; font-weight: normal; opacity: 0.9;">${detail}</span></span>`;
                 document.querySelector('.spinner').style.display = 'none';
             }
         }
