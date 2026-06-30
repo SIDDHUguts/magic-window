@@ -256,59 +256,55 @@
             color: var(--accent) !important;
         }
 
-        .toggle-buttons {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
+        .compact-control-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
         }
 
-        .hud-btn {
-            width: 100%;
-            padding: 11px 16px;
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.08);
+        .hud-btn-compact {
+            padding: 8px 12px;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.06);
             border-radius: 8px;
             color: var(--text-primary);
             font-family: 'Outfit', sans-serif;
-            font-size: 0.85rem;
+            font-size: 0.78rem;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.2s ease;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 10px;
+            gap: 6px;
             outline: none;
         }
 
-        .hud-btn:hover {
-            background: rgba(255, 255, 255, 0.08);
-            border-color: rgba(201, 168, 124, 0.5);
-            transform: translateY(-1px);
+        .hud-btn-compact:hover {
+            background: rgba(255, 255, 255, 0.06);
+            border-color: rgba(201, 168, 124, 0.4);
         }
 
-        .hud-btn:active {
+        .hud-btn-compact:active {
             transform: translateY(1px);
         }
 
-        .hud-btn.active {
-            background: rgba(201, 168, 124, 0.15);
+        .hud-btn-compact.active {
+            background: rgba(201, 168, 124, 0.12);
             border-color: var(--accent);
-            box-shadow: 0 0 15px rgba(201, 168, 124, 0.2);
             color: #fff;
         }
 
-        .hud-btn.muted {
-            border-color: rgba(255, 99, 132, 0.35);
-            background: rgba(255, 99, 132, 0.03);
+        .hud-btn-compact.muted, .hud-btn-compact.off {
+            border-color: rgba(255, 255, 255, 0.06);
             color: var(--text-secondary);
         }
 
-        .hud-btn.unmuted {
-            border-color: #00ff88;
-            background: rgba(0, 255, 136, 0.06);
-            box-shadow: 0 0 15px rgba(0, 255, 136, 0.1);
+        .hud-btn-compact.unmuted, .hud-btn-compact.on {
+            border-color: var(--accent);
+            background: rgba(201, 168, 124, 0.12);
             color: #fff;
+            box-shadow: 0 0 10px rgba(201, 168, 124, 0.15);
         }
 
         .preset-selector-grid {
@@ -569,22 +565,22 @@
                 </div>
 
                 <div class="hud-section">
-                    <h3>INTERACTIVE CONTROLS</h3>
-                    <div class="toggle-buttons">
-                        <button id="toggle-audio" class="hud-btn muted" onclick="toggleAudio()">
-                            <span class="icon">🔇</span> Sound: MUTED
+                    <h3>CONTROLS</h3>
+                    <div class="compact-control-grid">
+                        <button id="toggle-audio" class="hud-btn-compact muted" onclick="toggleAudio()" title="Toggle Sound">
+                            <span class="icon">🔇</span> Sound: OFF
                         </button>
-                        <button id="toggle-mic" class="hud-btn off" onclick="toggleMic()">
-                            <span class="icon">🎤</span> Mic Beat: OFF
+                        <button id="toggle-mic" class="hud-btn-compact off" onclick="toggleMic()" title="Toggle Mic Beat">
+                            <span class="icon">🎤</span> Mic: OFF
                         </button>
-                        <button id="btn-snapshot" class="hud-btn" onclick="takeSnapshot()">
-                            <span class="icon">📸</span> Take Snapshot
+                        <button id="btn-snapshot" class="hud-btn-compact" onclick="takeSnapshot()" title="Take Snapshot">
+                            <span class="icon">📸</span> Snapshot
                         </button>
-                        <button id="toggle-helpers" class="hud-btn off" onclick="toggleHelpers()">
-                            <span class="icon">👁️‍🗨️</span> Guides: HIDDEN
+                        <button id="toggle-helpers" class="hud-btn-compact off" onclick="toggleHelpers()" title="Toggle Guides">
+                            <span class="icon">👁️</span> Guides: OFF
                         </button>
-                        <button id="toggle-dashboard" class="hud-btn" onclick="toggleDashboardCollapse()">
-                            <span class="icon">🎛️</span> Hide Controls
+                        <button id="toggle-dashboard" class="hud-btn-compact" onclick="toggleDashboardCollapse()" style="grid-column: span 2;" title="Hide Controls">
+                            <span class="icon">🎛️</span> Hide Control Panel
                         </button>
                     </div>
                 </div>
@@ -788,14 +784,14 @@
                     
                     micSource.connect(micAnalyser);
                     
-                    btn.innerHTML = '<span class="icon">🎤</span> Mic Beat: ACTIVE';
-                    btn.className = 'hud-btn active';
+                    btn.innerHTML = '<span class="icon">🎤</span> Mic: ON';
+                    btn.className = 'hud-btn-compact active';
                     console.log("Microphone reactivity stream connected successfully.");
                 } catch (err) {
                     console.error("Microphone device access failed:", err);
                     isMicEnabled = false;
-                    btn.innerHTML = '<span class="icon">🎤</span> Mic Beat: FAILED';
-                    btn.className = 'hud-btn muted';
+                    btn.innerHTML = '<span class="icon">🎤</span> Mic: FAIL';
+                    btn.className = 'hud-btn-compact muted';
                 }
             } else {
                 if (micStream) {
@@ -810,8 +806,8 @@
                 micVolumeValue = 0;
                 micBassValue = 0;
                 
-                btn.innerHTML = '<span class="icon">🎤</span> Mic Beat: OFF';
-                btn.className = 'hud-btn off';
+                btn.innerHTML = '<span class="icon">🎤</span> Mic: OFF';
+                btn.className = 'hud-btn-compact off';
             }
         }
 
@@ -823,11 +819,11 @@
             }
             const btn = document.getElementById('toggle-helpers');
             if (showHelpers) {
-                btn.innerHTML = '<span class="icon">👁️</span> Guides: VISIBLE';
-                btn.className = 'hud-btn active';
+                btn.innerHTML = '<span class="icon">👁️</span> Guides: ON';
+                btn.className = 'hud-btn-compact active';
             } else {
-                btn.innerHTML = '<span class="icon">👁️‍🗨️</span> Guides: HIDDEN';
-                btn.className = 'hud-btn off';
+                btn.innerHTML = '<span class="icon">👁️</span> Guides: OFF';
+                btn.className = 'hud-btn-compact off';
             }
         }
 
@@ -913,10 +909,10 @@
             const btn = document.getElementById('toggle-audio');
             if (isAudioEnabled) {
                 btn.innerHTML = '<span class="icon">🔊</span> Sound: ON';
-                btn.className = 'hud-btn unmuted';
+                btn.className = 'hud-btn-compact unmuted';
             } else {
-                btn.innerHTML = '<span class="icon">🔇</span> Sound: MUTED';
-                btn.className = 'hud-btn muted';
+                btn.innerHTML = '<span class="icon">🔇</span> Sound: OFF';
+                btn.className = 'hud-btn-compact muted';
                 if (synthGainNode) {
                     synthGainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.08);
                 }
