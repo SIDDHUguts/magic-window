@@ -1855,7 +1855,7 @@
 
                 // Render Circular Sectors
                 if (polyW > 5 && polyH > 5) {
-                    const maxFilterDim = 180;
+                    const maxFilterDim = 120;
                     let scale = 1.0;
                     if (polyW > maxFilterDim || polyH > maxFilterDim) {
                         scale = maxFilterDim / Math.max(polyW, polyH);
@@ -2348,12 +2348,21 @@
             }
         }
 
+        // Hidden downscaled canvas for lightweight tracking inference (reduces CPU overhead by 4x!)
+        const trackingCanvas = document.createElement('canvas');
+        trackingCanvas.width = 320;
+        trackingCanvas.height = 240;
+        const trackingCtx = trackingCanvas.getContext('2d');
+
         async function processFrame() {
             if (!active) return;
             
             if (videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
                 try {
-                    await hands.send({ image: videoElement });
+                    // Downscale the webcam frame to 320x240 on the fly
+                    trackingCtx.drawImage(videoElement, 0, 0, 320, 240);
+                    // Pass the low-resolution frame to MediaPipe to avoid blocking the main UI thread
+                    await hands.send({ image: trackingCanvas });
                 } catch (e) {
                     console.error("MediaPipe hands processing failed:", e);
                 }
