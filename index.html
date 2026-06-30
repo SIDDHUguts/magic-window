@@ -1708,42 +1708,24 @@
             }
         }
 
-        // Core draw loop trigger on hand model output
-        function onResults(results) {
-            // --- Process Microphone Reactivity ---
-            if (isMicEnabled && micAnalyser && micDataArray) {
-                micAnalyser.getByteFrequencyData(micDataArray);
-                
-                let sumVol = 0;
-                for (let i = 0; i < micDataArray.length; i++) {
-                    sumVol += micDataArray[i];
-                }
-                micVolumeValue = sumVol / (micDataArray.length * 255.0);
-                
-                let sumBass = 0;
-                const bassBins = Math.min(8, micDataArray.length);
-                for (let i = 0; i < bassBins; i++) {
-                    sumBass += micDataArray[i];
-                }
-                micBassValue = sumBass / (bassBins * 255.0);
-            } else {
-                micVolumeValue = 0;
-                micBassValue = 0;
-            }
+        // Global tracking states for decoupled 120 FPS render loop
+        let latestTrackingState = null;
+        
+        let smoothCx = 0;
+        let smoothCy = 0;
+        let smoothR = 0;
+        let smoothTheta = 0;
+        let smoothAlpha = 0; // Fade parameter (grows to 1 when portal active, falls to 0 when inactive)
 
-            if (loadingOverlay.style.opacity !== '0') {
-                loadingOverlay.style.opacity = '0';
-                setTimeout(() => loadingOverlay.style.display = 'none', 500);
-            }
-
+        function drawLoop() {
+            if (!active) return;
+            
             const w = canvasElement.width;
             const h = canvasElement.height;
-
-            canvasCtx.clearRect(0, 0, w, h);
-
-            // Draw full video frame mirror-reflected (Aspect ratio cover logic)
-            const videoW = results.image.width || 640;
-            const videoH = results.image.height || 480;
+            
+            // 1. Draw clean background video frame at display refresh rate (60/120 FPS)
+            const videoW = videoElement.videoWidth || 640;
+            const videoH = videoElement.videoHeight || 480;
             const videoRatio = videoW / videoH;
             const canvasRatio = w / h;
             
@@ -1759,156 +1741,105 @@
                 drawY = 0;
                 drawX = (w - drawW) / 2;
             }
-
+            
             canvasCtx.save();
             canvasCtx.translate(w, 0);
             canvasCtx.scale(-1, 1);
-            canvasCtx.drawImage(results.image, w - drawX - drawW, drawY, drawW, drawH);
+            canvasCtx.drawImage(videoElement, w - drawX - drawW, drawY, drawW, drawH);
             canvasCtx.restore();
-            
-            const activeFingers = [];
-            let totalHandDepth = 0;
+
+            // 2. Process circular portal and effects with fluid ease interpolation
+            let hasPortal = false;
             let handCount = 0;
-            let triggerTouchActive = false;
-            let maxPinch = 0;
-            let handPinching = false;
-
-            if (results.multiHandLandmarks) {
-                handCount = results.multiHandLandmarks.length;
-                for (let handIdx = 0; handIdx < handCount; handIdx++) {
-                    const landmarks = results.multiHandLandmarks[handIdx];
+            let showSkeleton = showHelpers;
+            
+            if (latestTrackingState) {
+                handCount = latestTrackingState.handCount;
+                if (latestTrackingState.active) {
+                    hasPortal = true;
+                }
+            }
+            
+            if (hasPortal && latestTrackingState) {
+                const targetCx = latestTrackingState.cx;
+                const targetCy = latestTrackingState.cy;
+                const targetR = latestTrackingState.R;
+                const targetTheta = latestTrackingState.theta;
+                
+                // If it's the first time spawning, snap immediately to target coordinates
+                if (smoothAlpha < 0.05) {
+                    smoothCx = targetCx;
+                    smoothCy = targetCy;
+                    smoothR = targetR;
+                    smoothTheta = targetTheta;
+                } else {
+                    smoothCx += (targetCx - smoothCx) * 0.28;
+                    smoothCy += (targetCy - smoothCy) * 0.28;
+                    smoothR += (targetR - smoothR) * 0.28;
                     
+                    let diffTheta = targetTheta - smoothTheta;
+                    while (diffTheta < -Math.PI) diffTheta += 2 * Math.PI;
+                    while (diffTheta > Math.PI) diffTheta -= 2 * Math.PI;
+                    smoothTheta += diffTheta * 0.28;
+                }
+                smoothAlpha += (1.0 - smoothAlpha) * 0.18;
+            } else {
+                smoothAlpha += (0.0 - smoothAlpha) * 0.18;
+            }
+            
+            // Draw skeleton landmarks if enabled
+            if (showSkeleton && latestTrackingState && latestTrackingState.multiHandLandmarks) {
+                const theme = themes[activeTheme];
+                const handsData = latestTrackingState.multiHandLandmarks;
+                
+                for (let handIdx = 0; handIdx < handsData.length; handIdx++) {
+                    const landmarks = handsData[handIdx];
                     const wrist = landmarks[0];
-                    const thumbTip = landmarks[4];
-                    const thumbIp = landmarks[3];
-                    const indexTip = landmarks[8];
-                    const indexPip = landmarks[6];
-                    const middleTip = landmarks[12];
-                    const middlePip = landmarks[10];
-                    const ringTip = landmarks[16];
-                    const ringPip = landmarks[14];
-                    const pinkyTip = landmarks[20];
-                    const pinkyPip = landmarks[18];
                     const mcp = landmarks[9];
-
-                    // Pixel mapping
+                    
                     const wristX = Math.round(drawX + (1 - wrist.x) * drawW);
                     const wristY = Math.round(drawY + wrist.y * drawH);
-                    const thumbX = Math.round(drawX + (1 - thumbTip.x) * drawW);
-                    const thumbY = Math.round(drawY + thumbTip.y * drawH);
-                    const indexX = Math.round(drawX + (1 - indexTip.x) * drawW);
-                    const indexY = Math.round(drawY + indexTip.y * drawH);
                     const mcpX = Math.round(drawX + (1 - mcp.x) * drawW);
                     const mcpY = Math.round(drawY + mcp.y * drawH);
-                    const middleX = Math.round(drawX + (1 - middleTip.x) * drawW);
-                    const middleY = Math.round(drawY + middleTip.y * drawH);
-                    const ringX = Math.round(drawX + (1 - ringTip.x) * drawW);
-                    const ringY = Math.round(drawY + ringTip.y * drawH);
-                    const pinkyX = Math.round(drawX + (1 - pinkyTip.x) * drawW);
-                    const pinkyY = Math.round(drawY + pinkyTip.y * drawH);
-
-                    // Proximity / Depth calculation
-                    const depthPixelDist = Math.sqrt(Math.pow(wristX - mcpX, 2) + Math.pow(wristY - mcpY, 2));
-                    totalHandDepth += depthPixelDist;
-
-                    // Calculate local pinch distance
-                    const pinchD = Math.sqrt(Math.pow(thumbX - indexX, 2) + Math.pow(thumbY - indexY, 2));
-                    if (pinchD > maxPinch) maxPinch = pinchD;
-
-                    // If pinch distance is very small, count as an active pinch gesture
-                    if (pinchD < 24) {
-                        handPinching = true;
-                    }
-
-                    // Gestures: Thumb and Index are ALWAYS active (enables robust pinch-to-size without disappearing)
-                    activeFingers.push({ x: indexX, y: indexY });
-                    activeFingers.push({ x: thumbX, y: thumbY });
-
-                    // check if other fingers are extended (using wrist-distance ratio for 2D orientation invariance)
-                    const isExtended = (tipIdx, mcpIdx) => {
-                        const tip = landmarks[tipIdx];
-                        const mcp = landmarks[mcpIdx];
-                        const dTip = Math.sqrt(Math.pow(tip.x - wrist.x, 2) + Math.pow(tip.y - wrist.y, 2));
-                        const dMcp = Math.sqrt(Math.pow(mcp.x - wrist.x, 2) + Math.pow(mcp.y - wrist.y, 2));
-                        return dTip > dMcp * 1.15; // 1.15 threshold is very safe and responsive
-                    };
-
-                    const indexUp = isExtended(8, 5);
-                    const middleUp = isExtended(12, 9);
                     
-                    // Middle
-                    if (middleUp) {
-                        activeFingers.push({ x: middleX, y: middleY });
-                    }
-                    // Ring
-                    if (isExtended(16, 13)) {
-                        activeFingers.push({ x: ringX, y: ringY });
-                    }
-                    // Pinky
-                    if (isExtended(20, 17)) {
-                        activeFingers.push({ x: pinkyX, y: pinkyY });
-                    }
+                    // Concentric radar ring on palm center
+                    const depthPixelDist = Math.sqrt(Math.pow(wristX - mcpX, 2) + Math.pow(wristY - mcpY, 2));
+                    const radarRadius = 16 + (depthPixelDist * 0.22);
+                    const pulse = 1.0 + Math.sin(Date.now() * 0.012) * 0.08;
+                    const activeRadius = radarRadius * pulse;
+                    const depthNormalized = Math.min(1.0, depthPixelDist / 120);
 
-                    // Index-Middle Touching check removed to prioritize Pinch-to-Cycle triggers
+                    canvasCtx.save();
+                    canvasCtx.beginPath();
+                    canvasCtx.arc(mcpX, mcpY, activeRadius, 0, 2 * Math.PI);
+                    canvasCtx.strokeStyle = `${theme.particle}${depthNormalized})`;
+                    canvasCtx.lineWidth = 1.2 + (depthPixelDist / 85);
+                    canvasCtx.shadowColor = theme.primary;
+                    canvasCtx.shadowBlur = 8;
+                    canvasCtx.stroke();
+                    canvasCtx.restore();
 
-                    // Optional Skeleton overlay drawing
-                    if (showHelpers) {
-                        const theme = themes[activeTheme];
-                        const radarRadius = 16 + (depthPixelDist * 0.22);
-                        const pulse = 1.0 + Math.sin(Date.now() * 0.012) * 0.08;
-                        const activeRadius = radarRadius * pulse;
-                        const depthNormalized = Math.min(1.0, depthPixelDist / 120);
+                    // Palm base link
+                    canvasCtx.beginPath();
+                    canvasCtx.moveTo(wristX, wristY);
+                    canvasCtx.lineTo(mcpX, mcpY);
+                    canvasCtx.strokeStyle = 'rgba(0, 191, 255, 0.3)';
+                    canvasCtx.lineWidth = 1;
+                    canvasCtx.stroke();
 
-                        // Draw palm concentric radar
-                        canvasCtx.save();
-                        canvasCtx.beginPath();
-                        canvasCtx.arc(mcpX, mcpY, activeRadius, 0, 2 * Math.PI);
-                        canvasCtx.strokeStyle = `${theme.particle}${depthNormalized})`;
-                        canvasCtx.lineWidth = 1.2 + (depthPixelDist / 85);
-                        canvasCtx.shadowColor = theme.primary;
-                        canvasCtx.shadowBlur = 8;
-                        canvasCtx.stroke();
-                        canvasCtx.restore();
-
-                        // Draw helper lines to active finger tips
-                        canvasCtx.beginPath();
-                        canvasCtx.moveTo(wristX, wristY);
-                        canvasCtx.lineTo(mcpX, mcpY);
-                        canvasCtx.strokeStyle = 'rgba(0, 191, 255, 0.3)';
-                        canvasCtx.lineWidth = 1;
-                        canvasCtx.stroke();
-
-                        // Dot at wrist
-                        canvasCtx.beginPath();
-                        canvasCtx.arc(wristX, wristY, 5, 0, 2 * Math.PI);
-                        canvasCtx.fillStyle = theme.primary;
-                        canvasCtx.fill();
-                    }
+                    // Wrist dot
+                    canvasCtx.beginPath();
+                    canvasCtx.arc(wristX, wristY, 5, 0, 2 * Math.PI);
+                    canvasCtx.fillStyle = theme.primary;
+                    canvasCtx.fill();
                 }
             }
 
-            // --- Bounding Mesh & Rendering Solver --            // If exactly 2 hands are detected, we spawn the circular filter portal between them
-            if (handCount === 2 && results.multiHandLandmarks) {
-                const h1 = results.multiHandLandmarks[0][9]; // Middle MCP of hand 1
-                const h2 = results.multiHandLandmarks[1][9]; // Middle MCP of hand 2
-                
-                const h1X = Math.round(drawX + (1 - h1.x) * drawW);
-                const h1Y = Math.round(drawY + h1.y * drawH);
-                const h2X = Math.round(drawX + (1 - h2.x) * drawW);
-                const h2Y = Math.round(drawY + h2.y * drawH);
-                
-                // Solve Centroid (midpoint between the two hands)
-                const cx = Math.round((h1X + h2X) / 2);
-                const cy = Math.round((h1Y + h2Y) / 2);
-                
-                // Hand-to-hand distance
-                const handToHandDist = Math.sqrt(Math.pow(h1X - h2X, 2) + Math.pow(h1Y - h2Y, 2));
-                
-                // Portal size radius R is dynamically driven by the hand-to-hand distance
-                const R = Math.max(35, handToHandDist * 0.55);
-                
-                // Orientation angle is the slope of the line connecting the two hands
-                const theta = Math.atan2(h2Y - h1Y, h2X - h1X);
+            if (smoothAlpha > 0.02) {
+                const cx = Math.round(smoothCx);
+                const cy = Math.round(smoothCy);
+                const R = Math.round(smoothR);
+                const theta = smoothTheta;
                 
                 // Calculate bounding box width and height spans of the circular shape
                 let minX = cx - R, maxX = cx + R, minY = cy - R, maxY = cy + R;
@@ -1922,29 +1853,8 @@
                 
                 const preset = prismPresets[currentFilterIdx % prismPresets.length];
 
-                // 3. Modulate synthesizer parameters dynamically
-                if (audioCtx && isAudioEnabled && resonantFilter && oscillator && synthGainNode) {
-                    // Centroid height maps to pitch frequency
-                    let freq = 85 + (1.0 - (cy / h)) * 435; 
-                    if (preset.name === "Eldritch Mandala") {
-                        const wobble = Math.sin(Date.now() * 0.015) * 35;
-                        freq += wobble;
-                    }
-                    oscillator.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.05);
-                    
-                    // Radius R maps directly to filter cutoff
-                    const cutoff = 180 + Math.min(1.0, R / 250) * 2620; 
-                    resonantFilter.frequency.setTargetAtTime(cutoff, audioCtx.currentTime, 0.05);
-                    
-                    // Average depth maps to volume
-                    const avgDepth = (handCount > 0) ? (totalHandDepth / handCount) : 80;
-                    const targetGain = 0.04 + Math.min(1.0, avgDepth / 130) * 0.11; 
-                    synthGainNode.gain.setTargetAtTime(targetGain, audioCtx.currentTime, 0.05);
-                }
-
-                // 4. Render Circular Sectors (Single Readback Optimization)
+                // Render Circular Sectors
                 if (polyW > 5 && polyH > 5) {
-                    // Downscale the filter canvas to keep CPU utilization extremely low (resolves all lagging issues)
                     const maxFilterDim = 180;
                     let scale = 1.0;
                     if (polyW > maxFilterDim || polyH > maxFilterDim) {
@@ -1953,7 +1863,6 @@
                     const bufferW = Math.round(polyW * scale);
                     const bufferH = Math.round(polyH * scale);
 
-                    // Create 3 temporary offscreen canvases to pre-apply filters
                     const canvasTop = document.createElement('canvas');
                     canvasTop.width = bufferW;
                     canvasTop.height = bufferH;
@@ -1972,15 +1881,15 @@
                     const ctxBot = canvasBot.getContext('2d');
                     ctxBot.drawImage(canvasElement, minX, minY, polyW, polyH, 0, 0, bufferW, bufferH);
 
-                    // Capture clean pixels once from top canvas to pass to shaders (ASCII, halftone, etc.)
                     const origData = ctxTop.getImageData(0, 0, bufferW, bufferH);
 
-                    // Apply preset filters once to the offscreen canvases
                     preset.top(ctxTop, 0, 0, bufferW, bufferH, origData);
                     preset.mid(ctxMid, 0, 0, bufferW, bufferH, origData);
                     preset.bot(ctxBot, 0, 0, bufferW, bufferH, origData);
 
-                    // Draw 3 fanning circular sectors (pie wedges) onto the main screen canvas
+                    canvasCtx.save();
+                    canvasCtx.globalAlpha = smoothAlpha;
+
                     const arcStep = (2 * Math.PI) / 3;
                     for (let i = 0; i < 3; i++) {
                         const startAngle = theta + i * arcStep;
@@ -1998,36 +1907,38 @@
                         else if (i === 1) srcCanvas = canvasMid;
                         else srcCanvas = canvasBot;
 
-                        // Hardware-accelerated scaling back to screen size
                         canvasCtx.drawImage(srcCanvas, 0, 0, bufferW, bufferH, minX, minY, polyW, polyH);
                         canvasCtx.restore();
                     }
+                    canvasCtx.restore();
                 }
 
+                canvasCtx.save();
+                canvasCtx.globalAlpha = smoothAlpha;
+
                 if (preset.name === "Eldritch Mandala") {
-                    // Draw radial glowing gold gradient inside the circle first
+                    // Radial gradient inside circle
                     canvasCtx.save();
                     canvasCtx.beginPath();
                     canvasCtx.arc(cx, cy, R, 0, 2 * Math.PI);
                     canvasCtx.clip();
                     
                     const grad = canvasCtx.createRadialGradient(cx, cy, 10, cx, cy, R);
-                    grad.addColorStop(0, 'rgba(255, 235, 160, 0.4)'); // Bright golden core
-                    grad.addColorStop(0.5, 'rgba(255, 120, 0, 0.25)'); // Orange
-                    grad.addColorStop(1, 'rgba(255, 40, 0, 0.02)'); // Outward red glow
+                    grad.addColorStop(0, 'rgba(255, 235, 160, 0.4)');
+                    grad.addColorStop(0.5, 'rgba(255, 120, 0, 0.25)');
+                    grad.addColorStop(1, 'rgba(255, 40, 0, 0.02)');
                     canvasCtx.fillStyle = grad;
                     canvasCtx.fill();
                     canvasCtx.restore();
 
-                    // Now draw rotating concentric dashed rings
+                    // rotating concentric dashed rings
                     canvasCtx.save();
-                    canvasCtx.shadowColor = 'rgba(255, 100, 0, 0.9)'; // Glowing orange shadow
+                    canvasCtx.shadowColor = 'rgba(255, 100, 0, 0.9)';
                     canvasCtx.shadowBlur = 12 + micBassValue * 15;
                     canvasCtx.strokeStyle = 'rgba(255, 140, 0, 0.85)';
                     
                     const rotTime = Date.now() * 0.001;
 
-                    // Ring 1: R * 0.45, rotates clockwise
                     canvasCtx.beginPath();
                     canvasCtx.arc(cx, cy, R * 0.45, 0, 2 * Math.PI);
                     canvasCtx.lineWidth = 2.5 + micBassValue * 3;
@@ -2039,7 +1950,6 @@
                     canvasCtx.stroke();
                     canvasCtx.restore();
 
-                    // Ring 2: R * 0.75, rotates counter-clockwise
                     canvasCtx.beginPath();
                     canvasCtx.arc(cx, cy, R * 0.75, 0, 2 * Math.PI);
                     canvasCtx.lineWidth = 1.8 + micBassValue * 2;
@@ -2051,7 +1961,6 @@
                     canvasCtx.stroke();
                     canvasCtx.restore();
 
-                    // Ring 3: R * 0.92, thin outer solid ring
                     canvasCtx.beginPath();
                     canvasCtx.arc(cx, cy, R * 0.92, 0, 2 * Math.PI);
                     canvasCtx.lineWidth = 1.2;
@@ -2092,7 +2001,7 @@
                 canvasCtx.stroke();
 
                 // Draw Glowing Dots at the 3 divider points on the border (if guides are shown)
-                if (showHelpers) {
+                if (showSkeleton) {
                     canvasCtx.save();
                     for (let i = 0; i < 3; i++) {
                         const angle = theta + i * arcStep;
@@ -2109,10 +2018,6 @@
                 }
 
                 // 7. Emitter Spark Particles (Along Circular Boundary)
-                const dx = cx - prevBoxCenterX;
-                const dy = cy - prevBoxCenterY;
-                const speed = Math.sqrt(dx * dx + dy * dy);
-
                 let pColor = themes[activeTheme].particle;
                 if (preset.name === "Eldritch Mandala") {
                     pColor = Math.random() > 0.45 ? 'rgba(255, 120, 0, ' : 'rgba(255, 215, 60, ';
@@ -2132,21 +2037,19 @@
                     pColor = Math.random() > 0.5 ? 'rgba(255, 94, 98, ' : 'rgba(255, 153, 102, ';
                 }
 
-                if (speed > 2.0 || micBassValue > 0.15) {
-                    const oppX = -dx / (speed || 1);
-                    const oppY = -dy / (speed || 1);
-                    const sparkSpawnCount = speed > 2.0 ? 3 : Math.floor(micBassValue * 5);
+                if (micBassValue > 0.15 || Math.random() < 0.2) {
+                    const sparkSpawnCount = 1 + Math.floor(micBassValue * 3);
                     for (let k = 0; k < sparkSpawnCount; k++) {
                         const angle = Math.random() * 2 * Math.PI;
                         const px = Math.round(cx + R * Math.cos(angle));
                         const py = Math.round(cy + R * Math.sin(angle));
-                        const vx = oppX * (0.8 + Math.random() * 1.5) + (Math.random() - 0.5) * 1.2;
-                        const vy = oppY * (0.8 + Math.random() * 1.5) + (Math.random() - 0.5) * 1.2;
+                        const vx = (Math.random() - 0.5) * 2.0;
+                        const vy = (Math.random() - 0.5) * 2.0;
                         particles.push(new Particle(px, py, vx, vy, pColor));
                     }
                 }
 
-                // 8. Flowing Outward Particle Stream (Flows along 3 divider lines out to circular border)
+                // 8. Flowing Outward Particle Stream
                 for (let i = 0; i < 3; i++) {
                     const angle = theta + i * arcStep;
                     const ndx = Math.cos(angle);
@@ -2167,13 +2070,8 @@
                         particles.push(new Particle(cx, cy, vx, vy, pColor));
                     }
                 }
-
-                prevBoxCenterX = cx;
-                prevBoxCenterY = cy;
-            } else {
-                if (synthGainNode && audioCtx) {
-                    synthGainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
-                }
+                
+                canvasCtx.restore();
             }
 
             // --- Update and Draw Particles ---
@@ -2195,7 +2093,7 @@
             }
 
             // --- Trigger Manual Cycling on Pinch Gesture ---
-            const triggerPinchActive = (handCount > 0) && handPinching;
+            const triggerPinchActive = (latestTrackingState && latestTrackingState.handCount > 0) && latestTrackingState.handPinching;
             if (triggerPinchActive && !prevTriggerPinchActive) {
                 presetTransitionTimer = 1.0;
                 setFilterPreset((currentFilterIdx + 1) % prismPresets.length);
@@ -2210,8 +2108,6 @@
                 frameCount = 0;
                 fpsLastUpdate = currentTime;
 
-                // Sync diagnostics elements
-                // Sync diagnostics elements
                 const fpsVal = document.getElementById('fps-val');
                 if (fpsVal) {
                     fpsVal.textContent = fpsDisplay.toFixed(1);
@@ -2219,18 +2115,12 @@
                 }
             }
 
-            const handsVal = document.getElementById('hands-val');
-            if (handsVal) {
-                handsVal.textContent = `${handCount} / 2`;
-                handsVal.style.color = handCount === 2 ? '#00ff88' : (handCount === 1 ? '#ffaa00' : '#ff3333');
-            }
-
             // Sync tracking diagnostics in the HUD panel
             const debugHands = document.getElementById('debug-hands');
             if (debugHands) debugHands.innerText = handCount;
             
             const debugFingers = document.getElementById('debug-fingers');
-            if (debugFingers) debugFingers.innerText = activeFingers.length;
+            if (debugFingers) debugFingers.innerText = latestTrackingState ? (latestTrackingState.activeFingersCount || 0) : 0;
             
             const debugStatus = document.getElementById('debug-status');
             if (debugStatus) {
@@ -2242,6 +2132,173 @@
                     debugStatus.style.color = '#ffaa00';
                 }
             }
+
+            requestAnimationFrame(drawLoop);
+        }
+
+        // Core draw loop trigger on hand model output
+        function onResults(results) {
+            // --- Process Microphone Reactivity ---
+            if (isMicEnabled && micAnalyser && micDataArray) {
+                micAnalyser.getByteFrequencyData(micDataArray);
+                
+                let sumVol = 0;
+                for (let i = 0; i < micDataArray.length; i++) {
+                    sumVol += micDataArray[i];
+                }
+                micVolumeValue = sumVol / (micDataArray.length * 255.0);
+                
+                let sumBass = 0;
+                const bassBins = Math.min(8, micDataArray.length);
+                for (let i = 0; i < bassBins; i++) {
+                    sumBass += micDataArray[i];
+                }
+                micBassValue = sumBass / (bassBins * 255.0);
+            } else {
+                micVolumeValue = 0;
+                micBassValue = 0;
+            }
+
+            if (loadingOverlay.style.opacity !== '0') {
+                loadingOverlay.style.opacity = '0';
+                setTimeout(() => loadingOverlay.style.display = 'none', 500);
+            }
+
+            const w = canvasElement.width;
+            const h = canvasElement.height;
+
+            // Draw full video frame mirror-reflected (Aspect ratio cover logic)
+            const videoW = results.image.width || 640;
+            const videoH = results.image.height || 480;
+            const videoRatio = videoW / videoH;
+            const canvasRatio = w / h;
+            
+            let drawW, drawH, drawX, drawY;
+            if (canvasRatio > videoRatio) {
+                drawW = w;
+                drawH = w / videoRatio;
+                drawX = 0;
+                drawY = (h - drawH) / 2;
+            } else {
+                drawH = h;
+                drawW = h * videoRatio;
+                drawY = 0;
+                drawX = (w - drawW) / 2;
+            }
+            
+            let totalHandDepth = 0;
+            let handCount = 0;
+            let maxPinch = 0;
+            let handPinching = false;
+            let activeFingersCount = 0;
+
+            if (results.multiHandLandmarks) {
+                handCount = results.multiHandLandmarks.length;
+                for (let handIdx = 0; handIdx < handCount; handIdx++) {
+                    const landmarks = results.multiHandLandmarks[handIdx];
+                    const wrist = landmarks[0];
+                    const mcp = landmarks[9];
+                    const thumbTip = landmarks[4];
+                    const indexTip = landmarks[8];
+                    
+                    const wristX = Math.round(drawX + (1 - wrist.x) * drawW);
+                    const wristY = Math.round(drawY + wrist.y * drawH);
+                    const mcpX = Math.round(drawX + (1 - mcp.x) * drawW);
+                    const mcpY = Math.round(drawY + mcp.y * drawH);
+                    const thumbX = Math.round(drawX + (1 - thumbTip.x) * drawW);
+                    const thumbY = Math.round(drawY + thumbTip.y * drawH);
+                    const indexX = Math.round(drawX + (1 - indexTip.x) * drawW);
+                    const indexY = Math.round(drawY + indexTip.y * drawH);
+
+                    const depthPixelDist = Math.sqrt(Math.pow(wristX - mcpX, 2) + Math.pow(wristY - mcpY, 2));
+                    totalHandDepth += depthPixelDist;
+
+                    const pinchD = Math.sqrt(Math.pow(thumbX - indexX, 2) + Math.pow(thumbY - indexY, 2));
+                    if (pinchD > maxPinch) maxPinch = pinchD;
+                    if (pinchD < 24) {
+                        handPinching = true;
+                    }
+
+                    // Count fingers extended
+                    const isExtended = (tipIdx, mcpIdx) => {
+                        const tip = landmarks[tipIdx];
+                        const mcp = landmarks[mcpIdx];
+                        const dTip = Math.sqrt(Math.pow(tip.x - wrist.x, 2) + Math.pow(tip.y - wrist.y, 2));
+                        const dMcp = Math.sqrt(Math.pow(mcp.x - wrist.x, 2) + Math.pow(mcp.y - wrist.y, 2));
+                        return dTip > dMcp * 1.15;
+                    };
+                    
+                    activeFingersCount += 2; // Thumb and Index always count
+                    if (isExtended(12, 9)) activeFingersCount++; // Middle
+                    if (isExtended(16, 13)) activeFingersCount++; // Ring
+                    if (isExtended(20, 17)) activeFingersCount++; // Pinky
+                }
+            }
+
+            const handsVal = document.getElementById('hands-val');
+            if (handsVal) {
+                handsVal.textContent = `${handCount} / 2`;
+                handsVal.style.color = handCount === 2 ? '#00ff88' : (handCount === 1 ? '#ffaa00' : '#ff3333');
+            }
+
+            if (handCount === 2 && results.multiHandLandmarks) {
+                const h1 = results.multiHandLandmarks[0][9];
+                const h2 = results.multiHandLandmarks[1][9];
+                
+                const h1X = Math.round(drawX + (1 - h1.x) * drawW);
+                const h1Y = Math.round(drawY + h1.y * drawH);
+                const h2X = Math.round(drawX + (1 - h2.x) * drawW);
+                const h2Y = Math.round(drawY + h2.y * drawH);
+                
+                const cx = Math.round((h1X + h2X) / 2);
+                const cy = Math.round((h1Y + h2Y) / 2);
+                const handToHandDist = Math.sqrt(Math.pow(h1X - h2X, 2) + Math.pow(h1Y - h2Y, 2));
+                const R = Math.max(35, handToHandDist * 0.55);
+                const theta = Math.atan2(h2Y - h1Y, h2X - h1X);
+
+                const preset = prismPresets[currentFilterIdx % prismPresets.length];
+
+                // Modulate synthesizer parameters dynamically
+                if (audioCtx && isAudioEnabled && resonantFilter && oscillator && synthGainNode) {
+                    let freq = 85 + (1.0 - (cy / h)) * 435; 
+                    if (preset.name === "Eldritch Mandala") {
+                        const wobble = Math.sin(Date.now() * 0.015) * 35;
+                        freq += wobble;
+                    }
+                    oscillator.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.05);
+                    
+                    const cutoff = 180 + Math.min(1.0, R / 250) * 2620; 
+                    resonantFilter.frequency.setTargetAtTime(cutoff, audioCtx.currentTime, 0.05);
+                    
+                    const avgDepth = (handCount > 0) ? (totalHandDepth / handCount) : 80;
+                    const targetGain = 0.04 + Math.min(1.0, avgDepth / 130) * 0.11; 
+                    synthGainNode.gain.setTargetAtTime(targetGain, audioCtx.currentTime, 0.05);
+                }
+
+                latestTrackingState = {
+                    active: true,
+                    handCount,
+                    handPinching,
+                    cx, cy, R, theta,
+                    multiHandLandmarks: JSON.parse(JSON.stringify(results.multiHandLandmarks)),
+                    activeFingersCount,
+                    drawW, drawH, drawX, drawY
+                };
+            } else {
+                if (synthGainNode && audioCtx) {
+                    synthGainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
+                }
+                latestTrackingState = {
+                    active: false,
+                    handCount,
+                    handPinching: false,
+                    multiHandLandmarks: results.multiHandLandmarks ? JSON.parse(JSON.stringify(results.multiHandLandmarks)) : null,
+                    activeFingersCount,
+                    drawW, drawH, drawX, drawY
+                };
+            }
+
+
         }
 
         // --- Custom Robust Camera Loop ---
@@ -2274,6 +2331,7 @@
                     };
                 });
 
+                requestAnimationFrame(drawLoop);
                 requestAnimationFrame(processFrame);
             } catch (err) {
                 console.error("Camera access failed: ", err);
